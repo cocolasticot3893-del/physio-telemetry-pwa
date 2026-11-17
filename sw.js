@@ -1,5 +1,5 @@
 ﻿/* Service Worker PhysioPulse Telemetry — Network-First App Shell (zéro cache API externe) */
-const CACHE_NAME = "physiopulse-static-v2-png-fix";
+const CACHE_NAME = "physiopulse-v202611171736";
 const ASSETS = [
   "./",
   "./index.html",
@@ -71,4 +71,5 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PhysioPulse Telemetry — Contrôleur UI PWA 100 % Statique (ES Module)
  * Orchestre vault.js, intervals_client.js, physio_engine.js et gemini_client.js.
  */
@@ -528,7 +528,7 @@ function buildFallbackSeedHistory(dailyBundle) {
     {
       role: "user",
       parts: [{ text: `Contexte mathématique 1 Hz de la journée :\n${JSON.stringify(payload)}` }]
-    },
+    }, { role: "model", parts: [{ text: "Contexte physiologique 1 Hz enregistré." }] },
     {
       role: "model",
       parts: [{ text: "Contexte JSON mathématique chargé." }]
@@ -1209,16 +1209,32 @@ async function handleChatSubmit(questionText) {
   if (submitBtn) submitBtn.disabled = true;
   if (input) input.value = "";
 
+  // Garantit que le dernier tour avant la nouvelle question est bien 'model'
+  if (state.conversationHistory.length > 0 && state.conversationHistory[state.conversationHistory.length - 1].role === "user") {
+    state.conversationHistory.push({ role: "model", parts: [{ text: "Bien reçu." }] });
+  }
+
+  const logEl = $("chat-messages");
+  const loadingDiv = document.createElement("div");
+  loadingDiv.className = "chat-msg chat-msg-assistant";
+  loadingDiv.innerHTML = "<em>⏳ Gemini analyse les métriques de la séance...</em>";
+  if (logEl) {
+    logEl.appendChild(loadingDiv);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
   try {
     const res = await sendChatMessage({
       conversationHistory: state.conversationHistory,
       question: q,
       geminiApiKey: state.vault.GEMINI_API_KEY,
-      model: state.vault.LLM_MODEL
+      model: state.vault.LLM_MODEL || "gemini-2.5-flash"
     });
+    loadingDiv.remove();
     state.conversationHistory = res.conversationHistory;
     appendChatMessage("assistant", res.answer);
   } catch (err) {
+    loadingDiv.remove();
     appendChatMessage("assistant", `**Erreur Gemini :** ${err.message}`);
   } finally {
     if (submitBtn) submitBtn.disabled = false;
@@ -1274,3 +1290,4 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-analyze-1click")?.addEventListener("click", runFullPipeline);
   restoreCachedReport();
 });
+

@@ -1,4 +1,14 @@
-﻿// DIAGNOSTIC_API_VISIBLE : intercepte toute erreur HTTP/CORS sur generativelanguage.googleapis.com
+﻿// CHAT_RESPONSE_GUARD : garantit l'extraction du texte Gemini même avec thinking/parts multiples
+function extractGeminiReplyText(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textParts = parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text);
+  if (textParts.length > 0) return textParts.join('\n\n');
+  const allText = parts.filter(p => typeof p.text === 'string').map(p => p.text);
+  if (allText.length > 0) return allText.join('\n\n');
+  const reason = data?.candidates?.[0]?.finishReason || 'UNKNOWN';
+  throw new Error(`Réponse Gemini vide (finishReason: ${reason})`);
+}
+// DIAGNOSTIC_API_VISIBLE : intercepte toute erreur HTTP/CORS sur generativelanguage.googleapis.com
 (function() {
   const origFetch = window.fetch;
   window.fetch = async function(...args) {
@@ -152,7 +162,7 @@ async function callGeminiGenerateContent({ geminiApiKey, model, systemText, cont
     throw new Error("Clé API Gemini manquante.");
   }
 
-  const cleanModel = String(model || "gemini-3.5-flash").trim() || "gemini-3.5-flash";
+  const cleanModel = String(model || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
   const endpoint = `${GEMINI_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
   const payload = {
@@ -257,7 +267,7 @@ export async function fetchAvailableGeminiModels(geminiApiKey) {
     .sort((a, b) => b.id.localeCompare(a.id));
 }
 
-export async function generateInitialSynthesis({ dailyBundle, geminiApiKey, model = "gemini-3.5-flash" }) {
+export async function generateInitialSynthesis({ dailyBundle, geminiApiKey, model = "gemini-2.5-flash" }) {
   const contextPayload = buildInitialContextPayload(dailyBundle);
 
   const userPrompt = [
@@ -311,7 +321,7 @@ export async function sendChatMessage({
   conversationHistory = [],
   question,
   geminiApiKey,
-  model = "gemini-3.5-flash"
+  model = "gemini-2.5-flash"
 }) {
   const cleanQuestion = String(question ?? "").trim();
   if (!cleanQuestion) {
@@ -345,4 +355,5 @@ export async function sendChatMessage({
     conversationHistory: [...nextHistory, modelTurn]
   };
 }
+
 
