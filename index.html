@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <script>
+  try {
+    document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "light dark";
+  } catch {}
+  </script>
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="PhysioPulse Telemetry — PWA 100 % statique : Intervals.icu, moteur mathématique 1 Hz (ECG DFA α1, TymeWear, CORE) et synthèse Gemini.">
+  <title>PhysioPulse Telemetry</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Aller au contenu principal</a>
+
+  <!-- Barre supérieure -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="./icon.svg" alt="" class="brand-icon" width="32" height="32">
+        <div class="brand-text">
+          <span class="brand-title">PhysioPulse Telemetry</span>
+          <span class="brand-sub">PWA 1 Hz • Client-Side</span>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="vault-indicators" aria-label="État du coffre-fort">
+          <button type="button" id="vault-badge-intervals" class="status-pill status-pill-btn is-missing" title="Ouvrir le coffre-fort">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="vault-badge-intervals-text">Intervals Manquant</span>
+          </button>
+          <button type="button" id="vault-badge-gemini" class="status-pill status-pill-btn is-missing" title="Ouvrir le coffre-fort">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="vault-badge-gemini-text">Gemini Manquant</span>
+          </button>
+        </div>
+
+        <span id="network-status" class="status-pill" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="network-status-text">En ligne</span>
+        </span>
+
+        <button type="button" id="btn-vault-toggle" class="icon-btn" aria-expanded="false" aria-controls="vault-drawer" title="Coffre-fort centralisé et paramètres">
+          <span aria-hidden="true">⚙️</span>
+          <span class="sr-only">Ouvrir le coffre-fort centralisé</span>
+        </button>
+
+        <button type="button" id="theme-toggle" class="theme-toggle" title="Basculer le thème clair/sombre">
+          <span class="when-light" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          </span>
+          <span class="when-dark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          </span>
+          <span class="sr-only when-light">Passer en thème sombre</span>
+          <span class="sr-only when-dark">Passer en thème clair</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content" class="app-shell">
+    <!-- Tiroir Coffre-Fort Centralisé (⚙️) -->
+    <section id="vault-drawer" class="card vault-drawer" aria-labelledby="vault-heading" hidden>
+      <div class="vault-header">
+        <div>
+          <h2 id="vault-heading" class="part-title">Coffre-Fort Centralisé (Stockage Local Chiffré/Isolé)</h2>
+          <p class="vault-subtitle">Clés stockées uniquement dans votre navigateur (<code>GLOBAL_ATHLETE_VAULT_V1</code>). Aucun serveur intermédiaire.</p>
+        </div>
+        <button type="button" id="btn-vault-close" class="btn btn-outline btn-xs" aria-label="Fermer le tiroir coffre-fort">Fermer</button>
+      </div>
+
+      <div id="vault-alert" class="alert-banner" role="alert" hidden></div>
+
+      <form id="vault-form" class="vault-grid" autocomplete="off">
+        <label class="field">
+          <span class="field-label">INTERVALS_ATHLETE_ID</span>
+          <input type="text" id="vault-intervals-id" name="INTERVALS_ATHLETE_ID" placeholder="ex: i12345 ou 0" autocomplete="off" spellcheck="false">
+        </label>
+
+        <div class="field">
+          <label for="vault-intervals-key" class="field-label">INTERVALS_API_KEY</label>
+          <div class="secret-input-row">
+            <input type="password" id="vault-intervals-key" name="INTERVALS_API_KEY" placeholder="Clé API Intervals.icu" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn btn-outline btn-xs toggle-secret-btn" data-target="vault-intervals-key" aria-pressed="false" aria-label="Afficher ou masquer la clé Intervals.icu">Afficher</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="vault-gemini-key" class="field-label">GEMINI_API_KEY</label>
+          <div class="secret-input-row">
+            <input type="password" id="vault-gemini-key" name="GEMINI_API_KEY" placeholder="Clé API Google Gemini" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn btn-outline btn-xs toggle-secret-btn" data-target="vault-gemini-key" aria-pressed="false" aria-label="Afficher ou masquer la clé Gemini">Afficher</button>
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="field-label">LLM_MODEL</span>
+          <select id="vault-llm-model" name="LLM_MODEL">
+            <option value="gemini-2.5-flash" selected>gemini-2.5-flash (Défaut rapide)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro (Raisonnement approfondi)</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field-label">CP (Watts)</span>
+          <input type="number" id="vault-cp" name="CP" value="400" min="100" max="750" step="5">
+        </label>
+
+        <label class="field">
+          <span class="field-label">W' (Joules)</span>
+          <input type="number" id="vault-w-prime" name="W_PRIME" value="25000" min="5000" max="55000" step="500">
+        </label>
+
+        <div class="vault-actions">
+          <button type="submit" id="btn-vault-save" class="btn btn-primary btn-sm">Enregistrer dans le coffre-fort</button>
+          <button type="button" id="btn-vault-export" class="btn btn-secondary btn-sm">Exporter Coffre JSON</button>
+          <button type="button" id="btn-vault-import" class="btn btn-outline btn-sm">Importer Coffre JSON</button>
+          <input type="file" id="vault-import-file" accept=".json,application/json" hidden>
+        </div>
+      </form>
+
+      <!-- Option discrète hors-ligne : import CSV 1 Hz local -->
+      <div class="vault-offline-csv">
+        <span class="field-label">Mode hors-ligne Intervals.icu : importer un fichier <code>.csv</code> 1 Hz local</span>
+        <div class="file-row">
+          <input type="file" id="local-csv-file" accept=".csv,text/csv">
+          <button type="button" id="btn-analyze-csv" class="btn btn-outline btn-sm" disabled>Analyser CSV local</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Zone 1-Click en haut -->
+    <section class="quick-actions card" aria-label="Pipeline d'analyse 1-Click">
+      <div class="oneclick-row">
+        <button type="button" id="btn-analyze-1click" class="btn btn-primary btn-hero">
+          <span aria-hidden="true">⚡</span>
+          <span>Analyser (1-Click Intervals.icu + Gemini)</span>
+        </button>
+
+        <label class="field date-field">
+          <span class="field-label">Date (vide = dernière sur 30 j)</span>
+          <input type="date" id="input-target-date" name="date" autocomplete="off">
+        </label>
+      </div>
+
+      <!-- Barre de progression étape par étape -->
+      <ol id="pipeline-progress" class="pipeline-steps" aria-label="Progression de l'analyse" hidden>
+        <li id="step-1" class="pipeline-step" data-state="pending">
+          <span class="step-dot" aria-hidden="true">1</span>
+          <span class="step-label">1. Fetch Intervals.icu</span>
+        </li>
+        <li id="step-2" class="pipeline-step" data-state="pending">
+          <span class="step-dot" aria-hidden="true">2</span>
+          <span class="step-label">2. Moteur Mathématique 1 Hz</span>
+        </li>
+        <li id="step-3" class="pipeline-step" data-state="pending">
+          <span class="step-dot" aria-hidden="true">3</span>
+          <span class="step-label">3. Synthèse Gemini First Principles</span>
+        </li>
+      </ol>
+
+      <!-- Alerte générale -->
+      <div id="status-alert" class="alert-banner" role="alert" hidden></div>
+    </section>
+
+    <!-- Barre d'onglets Multi-Séances -->
+    <nav id="session-tabs-bar" class="session-tabs" aria-label="Séances de la journée" hidden>
+      <div id="session-tabs-list" class="tabs-scroller" role="tablist"></div>
+    </nav>
+
+    <!-- État initial -->
+    <section id="empty-state" class="card empty-state">
+      <h1>Analyse Physiologique 1 Hz — 100 % Client-Side</h1>
+      <p>Configurez vos clés dans le coffre-fort (<strong>⚙️</strong>) puis cliquez sur <strong>⚡ Analyser (1-Click Intervals.icu + Gemini)</strong> pour décoder vos flux 1 Hz (Puissance, ECG DFA α₁, Ventilation TymeWear, CORE) et générer la synthèse First Principles.</p>
+    </section>
+
+    <!-- Conteneur principal du rapport -->
+    <div id="report-root" hidden>
+      <!-- =============================================================== -->
+      <!-- ORDRE 1 (TOUT EN HAUT) — BILAN SYNTHÈSE & VUE RAPIDE            -->
+      <!-- =============================================================== -->
+      <section class="report-part" aria-labelledby="part1-heading">
+        <div class="section-header">
+          <h1 id="part1-heading" class="part-title">Bilan Synthèse &amp; Vue Rapide</h1>
+          <span id="report-meta-badge" class="meta-badge"></span>
+        </div>
+
+        <!-- Carte Synthèse Journée Consolidée (si multi-séances) -->
+        <article id="day-consolidated-card" class="card consolidated-card" hidden>
+          <div class="card-head">
+            <h2>Synthèse Journée Consolidée</h2>
+            <span id="day-sessions-count" class="badge badge-info"></span>
+          </div>
+          <div id="day-consolidated-metrics" class="consolidated-grid"></div>
+          <p id="day-consolidated-evolution" class="evolution-strip"></p>
+        </article>
+
+        <!-- Carte Verdict Exécutif & Synthèse Gemini -->
+        <article id="executive-verdict" class="verdict-banner" aria-live="polite">
+          <div class="verdict-top">
+            <span id="verdict-badge" class="badge">VERDICT EXÉCUTIF</span>
+            <h2 id="verdict-title" class="verdict-title"></h2>
+          </div>
+
+          <div id="gemini-error-box" class="alert-banner is-error" hidden></div>
+          <p id="verdict-summary" class="verdict-summary"></p>
+          <p id="verdict-root-cause" class="verdict-root"></p>
+
+          <!-- Points Forts & Points de Rupture -->
+          <div class="dual-cards verdict-dual">
+            <div class="sub-panel">
+              <h3><span aria-hidden="true">✅</span> Points Forts</h3>
+              <ul id="strengths-list" class="bullet-list"></ul>
+            </div>
+            <div class="sub-panel">
+              <h3><span aria-hidden="true">⚠️</span> Points de Rupture</h3>
+              <ul id="breaking-points-list" class="bullet-list"></ul>
+            </div>
+          </div>
+
+          <!-- 4 Axes Prioritaires à Travailler -->
+          <div class="sub-panel verdict-priorities">
+            <h3>4 Axes Prioritaires à Travailler</h3>
+            <ol id="priorities-list" class="priorities-list"></ol>
+          </div>
+
+          <!-- Notes Techniques Gemini -->
+          <div id="verdict-tech-notes" class="verdict-tech-notes" hidden></div>
+        </article>
+
+        <!-- Bandeau Wellness Matinal -->
+        <article id="wellness-banner" class="card wellness-card" aria-labelledby="wellness-heading" hidden>
+          <div class="card-head">
+            <h2 id="wellness-heading">Wellness Matinal</h2>
+            <span id="wellness-date-badge" class="meta-badge"></span>
+          </div>
+          <div id="wellness-grid" class="wellness-grid"></div>
+        </article>
+
+        <!-- Grille de 6 KPIs -->
+        <div id="kpi-grid" class="kpi-grid" aria-label="6 indicateurs clés de performance"></div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- ORDRE 2 (EN DESSOUS) — ACCORDÉONS TECHNIQUES DÉTAILLÉS          -->
+      <!-- =============================================================== -->
+      <section class="accordion card" id="tech-accordion" aria-labelledby="tech-heading">
+        <div class="accordion-toolbar">
+          <h2 id="tech-heading" class="part-title">Analyse Technique Détaillée</h2>
+          <button type="button" id="toggle-all-btn" class="btn btn-outline btn-sm" commandfor="tech-accordion" command="--toggle-all" aria-expanded="false">
+            <span class="expand">Tout déplier</span>
+            <span class="collapse">Tout replier</span>
+          </button>
+        </div>
+
+        <!-- Accordéon 1 : Incidents & Auto-Pauses en Montée (Patou / Tachypnée) -->
+        <details open id="sec-anomalies">
+          <summary><span class="summary-title">1. Incidents &amp; Auto-Pauses en Montée (Patou / Tachypnée)</span></summary>
+          <div class="details-body">
+            <div id="anomalies-container" class="cascade-timeline"></div>
+          </div>
+        </details>
+
+        <!-- Accordéon 2 : Dérive Intra-Série (1 -> N) & Triptyque Puissance x Chaleur x DFA alpha1 -->
+        <details id="sec-triptych">
+          <summary><span class="summary-title">2. Dérive Intra-Série (1 → N) &amp; Triptyque Puissance × Chaleur × DFA α₁</span></summary>
+          <div class="details-body">
+            <div class="table-controls">
+              <button type="button" class="btn btn-outline btn-xs toggle-wide-btn" data-target="wrapper-drift-table" aria-pressed="false">
+                Vue tableau large
+              </button>
+            </div>
+            <div id="wrapper-drift-table" tabindex="0" role="region" aria-labelledby="drift-table-caption" class="table-wrapper">
+              <table id="table-drift">
+                <caption id="drift-table-caption">Évolution et dérive intra-série (1 → N)</caption>
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="triptych-container" class="triptych-grid"></div>
+          </div>
+        </details>
+
+        <!-- Accordéon 3 : Cartographie des Seuils SV1 / SV2 -->
+        <details id="sec-thresholds">
+          <summary><span class="summary-title">3. Cartographie des Seuils SV₁ / SV₂ (Normothermie vs Hyperthermie)</span></summary>
+          <div class="details-body">
+            <div id="thresholds-container" class="thresholds-grid"></div>
+          </div>
+        </details>
+
+        <!-- Accordéon 4 : Tableau A — Cinématique, Mécanique & Cardiaque (ECG) -->
+        <details id="sec-table-a">
+          <summary><span class="summary-title">4. Tableau A — Cinématique, Mécanique &amp; Cardiaque (ECG)</span></summary>
+          <div class="details-body">
+            <div class="table-controls">
+              <button type="button" class="btn btn-outline btn-xs toggle-wide-btn" data-target="wrapper-table-a" aria-pressed="false">
+                Vue tableau large
+              </button>
+            </div>
+            <div id="wrapper-table-a" tabindex="0" role="region" aria-labelledby="table-a-caption" class="table-wrapper">
+              <table id="table-a">
+                <caption id="table-a-caption">Cinématique, puissance mécanique et cardiaque ECG (intervalles &amp; transitions)</caption>
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+
+        <!-- Accordéon 5 : Tableau B — Ventilation TymeWear, DFA alpha1 & Thermorégulation CORE -->
+        <details id="sec-table-b">
+          <summary><span class="summary-title">5. Tableau B — Ventilation TymeWear, DFA α₁ &amp; Thermorégulation CORE</span></summary>
+          <div class="details-body">
+            <div class="table-controls">
+              <button type="button" class="btn btn-outline btn-xs toggle-wide-btn" data-target="wrapper-table-b" aria-pressed="false">
+                Vue tableau large
+              </button>
+            </div>
+            <div id="wrapper-table-b" tabindex="0" role="region" aria-labelledby="table-b-caption" class="table-wrapper">
+              <table id="table-b">
+                <caption id="table-b-caption">Ventilation TymeWear, fractale DFA α₁ et thermorégulation CORE</caption>
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- ORDRE 3 (TOUT EN BAS) — BARRE DE CHAT MULTI-TOURS GEMINI        -->
+      <!-- =============================================================== -->
+      <section id="chat-section" class="card chat-section" aria-labelledby="chat-heading">
+        <div class="chat-header">
+          <h2 id="chat-heading" class="part-title">Chat Multi-Tours Gemini (Coach Neuro-Symbolique)</h2>
+          <p class="chat-subtitle">Contexte initialisé avec le JSON mathématique complet de toutes les séances du jour.</p>
+        </div>
+
+        <div class="quick-chips" role="group" aria-label="Raccourcis rapides">
+          <button type="button" class="chip-btn" data-question="Explique la 2e série et les pauses">Explique la 2e série et les pauses</button>
+          <button type="button" class="chip-btn" data-question="Interprète Puissance × Chaleur × DFA α₁">Interprète Puissance × Chaleur × DFA α₁</button>
+          <button type="button" class="chip-btn" data-question="Compare les intervalles & la dérive">Compare les intervalles &amp; la dérive</button>
+          <button type="button" class="chip-btn" data-question="Plan nutrition sans viande & hydratation">Plan nutrition sans viande &amp; hydratation</button>
+        </div>
+
+        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+        <form id="chat-form" class="chat-form">
+          <label for="chat-input" class="sr-only">Posez une question à Gemini</label>
+          <input type="text" id="chat-input" placeholder="Posez une question sur une série, SV1/SV2, CORE, DFA α₁…" autocomplete="off" required>
+          <button type="submit" id="chat-submit" class="btn btn-primary">Envoyer</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <!-- Bouton flottant ancré vers le chat -->
+  <button type="button" id="fab-ask" class="fab-ask" hidden aria-label="Aller au chat Gemini">
+    <span aria-hidden="true">💬</span>
+    <span>Poser une question</span>
+  </button>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
