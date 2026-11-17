@@ -16,7 +16,7 @@ export const DEFAULT_VAULT = Object.freeze({
   INTERVALS_ATHLETE_ID: "0",
   INTERVALS_API_KEY: "",
   GEMINI_API_KEY: "",
-  LLM_MODEL: "gemini-2.5-flash",
+  LLM_MODEL: "gemini-3.5-flash",
   CP_WATTS: 400,
   W_PRIME_J: 25000,
   updatedAt: null

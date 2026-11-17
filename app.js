@@ -18,6 +18,7 @@ import {
 } from "./physio_engine.js";
 import {
   buildInitialContextPayload,
+  fetchAvailableGeminiModels,
   generateInitialSynthesis,
   sendChatMessage
 } from "./gemini_client.js";
@@ -254,7 +255,7 @@ function syncVaultFormInputs() {
 
   const modelSel = $("vault-llm-model");
   if (modelSel) {
-    const modelVal = v.LLM_MODEL || "gemini-2.5-flash";
+    const modelVal = v.LLM_MODEL || "gemini-3.5-flash";
     if (!Array.from(modelSel.options).some((opt) => opt.value === modelVal)) {
       const opt = document.createElement("option");
       opt.value = modelVal;
@@ -388,6 +389,40 @@ function initVaultUI() {
   csvBtn?.addEventListener("click", () => {
     const file = csvInput?.files?.[0];
     if (file) runLocalCsvPipeline(file);
+  });
+
+  $("refresh-models-btn")?.addEventListener("click", async () => {
+    const key = ($("vault-gemini-key")?.value || state.vault.GEMINI_API_KEY || "").trim();
+    const btn = $("refresh-models-btn");
+    const modelSel = $("vault-llm-model");
+    if (!key || !modelSel) {
+      setVaultDrawerOpen(true, "Saisissez GEMINI_API_KEY pour charger les modèles de votre compte.", true);
+      return;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      const models = await fetchAvailableGeminiModels(key);
+      if (models.length === 0) {
+        setVaultDrawerOpen(true, "Aucun modèle compatible generateContent trouvé.", true);
+        return;
+      }
+      const currentVal = modelSel.value || state.vault.LLM_MODEL || "gemini-3.5-flash";
+      modelSel.innerHTML = "";
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.displayName && m.displayName !== m.id ? `${m.id} — ${m.displayName}` : m.id;
+        modelSel.appendChild(opt);
+      }
+      if (Array.from(modelSel.options).some((o) => o.value === currentVal)) {
+        modelSel.value = currentVal;
+      }
+      setVaultDrawerOpen(true, `${models.length} modèles Gemini chargés depuis votre compte.`, false);
+    } catch (err) {
+      setVaultDrawerOpen(true, `Impossible de lister les modèles : ${err.message}`, true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   });
 
   window.addEventListener("storage", () => {

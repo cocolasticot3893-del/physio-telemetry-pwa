@@ -102,14 +102,20 @@
           </div>
         </div>
 
-        <label class="field">
-          <span class="field-label">LLM_MODEL</span>
-          <select id="vault-llm-model" name="LLM_MODEL">
-            <option value="gemini-2.5-flash" selected>gemini-2.5-flash (Défaut rapide)</option>
-            <option value="gemini-2.5-pro">gemini-2.5-pro (Raisonnement approfondi)</option>
-            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-          </select>
-        </label>
+        <div class="field">
+          <label for="vault-llm-model" class="field-label">LLM_MODEL</label>
+          <div class="secret-input-row">
+            <select id="vault-llm-model" name="LLM_MODEL">
+              <option value="gemini-3.8-flash">gemini-3.8-flash (Dernier Flash)</option>
+              <option value="gemini-3.5-flash" selected>gemini-3.5-flash (Défaut rapide)</option>
+              <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra-rapide)</option>
+              <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Raisonnement approfondi)</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro (Legacy Pro)</option>
+              <option value="gemini-2.5-flash">gemini-2.5-flash (Legacy Flash)</option>
+            </select>
+            <button type="button" id="refresh-models-btn" class="btn btn-outline btn-xs" title="Charger la liste des modèles depuis votre compte Gemini" aria-label="Actualiser les modèles Gemini">↻</button>
+          </div>
+        </div>
 
         <label class="field">
           <span class="field-label">CP (Watts)</span>

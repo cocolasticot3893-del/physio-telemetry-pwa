@@ -130,7 +130,7 @@ async function callGeminiGenerateContent({ geminiApiKey, model, systemText, cont
     throw new Error("Clé API Gemini manquante.");
   }
 
-  const cleanModel = String(model || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+  const cleanModel = String(model || "gemini-3.5-flash").trim() || "gemini-3.5-flash";
   const endpoint = `${GEMINI_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
   const payload = {
@@ -209,7 +209,33 @@ function parseStrictSynthesisJson(rawText) {
 /**
  * Génère la synthèse initiale structurée en JSON strict et initialise l'historique multi-tours.
  */
-export async function generateInitialSynthesis({ dailyBundle, geminiApiKey, model = "gemini-2.5-flash" }) {
+export async function fetchAvailableGeminiModels(geminiApiKey) {
+  const cleanKey = String(geminiApiKey ?? "").trim();
+  if (!cleanKey) {
+    throw new Error("Clé API Gemini requante pour lister les modèles.");
+  }
+  const url = `${GEMINI_BASE_URL}?key=${encodeURIComponent(cleanKey)}&pageSize=100`;
+  const response = await fetch(url, { method: "GET" });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`Erreur Gemini Models (${response.status}): ${errText.slice(0, 180)}`);
+  }
+  const data = await response.json();
+  const models = Array.isArray(data?.models) ? data.models : [];
+  return models
+    .filter((m) => {
+      const name = String(m?.name || "");
+      const methods = Array.isArray(m?.supportedGenerationMethods) ? m.supportedGenerationMethods : [];
+      return name.includes("gemini-") && methods.includes("generateContent");
+    })
+    .map((m) => ({
+      id: String(m.name).replace(/^models\//, ""),
+      displayName: String(m.displayName || m.name.replace(/^models\//, ""))
+    }))
+    .sort((a, b) => b.id.localeCompare(a.id));
+}
+
+export async function generateInitialSynthesis({ dailyBundle, geminiApiKey, model = "gemini-3.5-flash" }) {
   const contextPayload = buildInitialContextPayload(dailyBundle);
 
   const userPrompt = [
@@ -263,7 +289,7 @@ export async function sendChatMessage({
   conversationHistory = [],
   question,
   geminiApiKey,
-  model = "gemini-2.5-flash"
+  model = "gemini-3.5-flash"
 }) {
   const cleanQuestion = String(question ?? "").trim();
   if (!cleanQuestion) {
