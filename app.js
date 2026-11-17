@@ -1228,7 +1228,7 @@ async function handleChatSubmit(questionText) {
       conversationHistory: state.conversationHistory,
       question: q,
       geminiApiKey: state.vault.GEMINI_API_KEY,
-      model: state.vault.LLM_MODEL || "gemini-2.5-flash"
+      model: state.vault.LLM_MODEL || "gemini-4-hydrogen"
     });
     loadingDiv.remove();
     state.conversationHistory = res.conversationHistory;
@@ -1293,111 +1293,120 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
+
 /* ==========================================================================
-   AUTO_SYNC_GEMINI_MODELS_V1 : Cache localStorage + Sync silencieux au démarrage
+   AUTO_SYNC_GEMINI_MODELS_V2 : Sélection dynamique du meilleur modèle à l'ouverture
    ========================================================================== */
-const MODELS_CACHE_KEY = "PHYSIOPULSE_CACHED_MODELS_V1";
+const MODELS_CACHE_KEY = "PHYSIOPULSE_CACHED_MODELS_V2";
+const AUTO_ANALYZE_KEY = "PHYSIOPULSE_AUTO_ANALYZE_STARTUP";
+const PREFERRED_MODEL_ORDER = [
+  "gemini-4-hydrogen",
+  "gemini-3.8-flash",
+  "gemini-flash-latest"
+];
 
-function hydrateModelsSelectFromCache() {
+function pickBestAvailableModel(modelsList, currentSavedModel) {
+  const availableIds = modelsList
+    .map(m => (typeof m === "string" ? m : (m.id || m.name || "")).replace(/^models\//, ""))
+    .filter(Boolean);
+
+  if (availableIds.length === 0) {
+    return currentSavedModel && currentSavedModel !== "gemini-2.5-flash"
+      ? currentSavedModel
+      : "gemini-4-hydrogen";
+  }
+
+  // Si l'utilisateur a explicitement choisi un autre modèle valide (ex: gemini-4-argon, gemini-pro-latest)
+  if (
+    currentSavedModel &&
+    currentSavedModel !== "gemini-2.5-flash" &&
+    availableIds.includes(currentSavedModel)
+  ) {
+    return currentSavedModel;
+  }
+
+  // Sinon, sélection automatique par ordre de priorité (gemini-4-hydrogen -> gemini-3.8-flash -> gemini-flash-latest)
+  for (const candidate of PREFERRED_MODEL_ORDER) {
+    if (availableIds.includes(candidate)) {
+      return candidate;
+    }
+  }
+
+  return availableIds[0];
+}
+
+function renderModelOptions(selectEl, modelsList, selectedId) {
+  if (!selectEl || !Array.isArray(modelsList) || modelsList.length === 0) return;
+  selectEl.innerHTML = "";
+  for (const m of modelsList) {
+    const id = (typeof m === "string" ? m : (m.id || m.name || "")).replace(/^models\//, "");
+    const label = typeof m === "string" ? m : (m.displayName ? `${id} — ${m.displayName}` : id);
+    if (!id) continue;
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = label;
+    selectEl.appendChild(opt);
+  }
+  if (selectedId && [...selectEl.options].some(o => o.value === selectedId)) {
+    selectEl.value = selectedId;
+  }
+}
+
+async function resolveAndSyncModelsAtStartup() {
   const selectEl = document.getElementById("llm-model") || document.querySelector("select[id*='model']");
-  if (!selectEl) return;
-  const savedVault = loadVault();
-  const targetModel = savedVault.LLM_MODEL || localStorage.getItem("LLM_MODEL") || "";
+  const vault = loadVault();
+  const apiKey = (vault.GEMINI_API_KEY || "").trim();
+  let savedModel = vault.LLM_MODEL || localStorage.getItem("LLM_MODEL") || "";
 
+  // Purge immédiate de l'ancien modèle déprécié gemini-2.5-flash
+  if (savedModel === "gemini-2.5-flash") {
+    savedModel = "";
+  }
+
+  // 1. Hydratation immédiate depuis le cache localStorage si disponible
+  let cachedModels = [];
   try {
-    const rawCache = localStorage.getItem(MODELS_CACHE_KEY);
-    if (rawCache) {
-      const models = JSON.parse(rawCache);
-      if (Array.isArray(models) && models.length > 0) {
-        selectEl.innerHTML = "";
-        for (const m of models) {
-          const id = typeof m === "string" ? m : (m.id || m.name || "").replace(/^models\//, "");
-          const label = typeof m === "string" ? m : (m.displayName ? `${id} — ${m.displayName}` : id);
-          if (!id) continue;
-          const opt = document.createElement("option");
-          opt.value = id;
-          opt.textContent = label;
-          selectEl.appendChild(opt);
+    cachedModels = JSON.parse(localStorage.getItem(MODELS_CACHE_KEY) || "[]");
+  } catch (_) {}
+
+  let chosenModel = pickBestAvailableModel(cachedModels, savedModel);
+  if (cachedModels.length > 0 && selectEl) {
+    renderModelOptions(selectEl, cachedModels, chosenModel);
+  }
+
+  // 2. Interrogation en direct de l'API Google pour récupérer les modèles actifs à l'ouverture
+  if (apiKey) {
+    try {
+      const liveModels = await fetchAvailableGeminiModels(apiKey);
+      if (Array.isArray(liveModels) && liveModels.length > 0) {
+        localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(liveModels));
+        chosenModel = pickBestAvailableModel(liveModels, savedModel);
+        if (selectEl) {
+          renderModelOptions(selectEl, liveModels, chosenModel);
         }
       }
+    } catch (_) {
+      // Conservation du modèle en cache en cas de coupure réseau
     }
-  } catch (_) {}
-
-  if (targetModel) {
-    if (![...selectEl.options].some(o => o.value === targetModel)) {
-      const opt = document.createElement("option");
-      opt.value = targetModel;
-      opt.textContent = targetModel;
-      selectEl.appendChild(opt);
-    }
-    selectEl.value = targetModel;
   }
-}
 
-async function autoRefreshGeminiModelsSilently() {
-  const selectEl = document.getElementById("llm-model") || document.querySelector("select[id*='model']");
-  if (!selectEl) return;
-
-  hydrateModelsSelectFromCache();
-
-  const currentVault = loadVault();
-  const apiKey = (currentVault.GEMINI_API_KEY || "").trim();
-  const preferredModel = currentVault.LLM_MODEL || selectEl.value;
-  if (!apiKey) return;
-
-  try {
-    const models = await fetchAvailableGeminiModels(apiKey);
-    if (Array.isArray(models) && models.length > 0) {
-      localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(models));
-      selectEl.innerHTML = "";
-      for (const m of models) {
-        const id = typeof m === "string" ? m : (m.id || m.name || "").replace(/^models\//, "");
-        const label = typeof m === "string" ? m : (m.displayName ? `${id} — ${m.displayName}` : id);
-        if (!id) continue;
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = label;
-        selectEl.appendChild(opt);
+  // 3. Persistance du modèle retenu dans le coffre-fort partagé
+  if (chosenModel) {
+    localStorage.setItem("LLM_MODEL", chosenModel);
+    try {
+      const rawVault = localStorage.getItem("GLOBAL_ATHLETE_VAULT_V1");
+      if (rawVault) {
+        const vObj = JSON.parse(rawVault);
+        vObj.LLM_MODEL = chosenModel;
+        localStorage.setItem("GLOBAL_ATHLETE_VAULT_V1", JSON.stringify(vObj));
       }
-      if (preferredModel && [...selectEl.options].some(o => o.value === preferredModel)) {
-        selectEl.value = preferredModel;
-      }
-    }
-  } catch (_) {
-    // Échec réseau silencieux : le cache localStorage reste actif
+    } catch (_) {}
   }
+
+  return chosenModel;
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  autoRefreshGeminiModelsSilently();
-});
-
-
-
-/* ==========================================================================
-   AUTO_ANALYZE_STARTUP_V1 : Migration modèle API réel + Auto-Sync ouverture
-   ========================================================================== */
-const AUTO_ANALYZE_KEY = "PHYSIOPULSE_AUTO_ANALYZE_STARTUP";
-
-function migrateLegacyModelAlias() {
-  try {
-    const rawVault = localStorage.getItem("GLOBAL_ATHLETE_VAULT_V1");
-    if (rawVault) {
-      const v = JSON.parse(rawVault);
-      if (v.LLM_MODEL === "gemini-4-hydrogen" || !v.LLM_MODEL) {
-        v.LLM_MODEL = "gemini-2.5-flash";
-        localStorage.setItem("GLOBAL_ATHLETE_VAULT_V1", JSON.stringify(v));
-      }
-    }
-    if (localStorage.getItem("LLM_MODEL") === "gemini-4-hydrogen") {
-      localStorage.setItem("LLM_MODEL", "gemini-2.5-flash");
-    }
-  } catch (_) {}
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  migrateLegacyModelAlias();
-
+document.addEventListener("DOMContentLoaded", async () => {
   const autoChk = document.getElementById("auto-analyze-startup");
   if (autoChk) {
     autoChk.checked = localStorage.getItem(AUTO_ANALYZE_KEY) === "1";
@@ -1406,14 +1415,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Synchronisation automatique au démarrage si activée et clés présentes
+  // Résout d'abord le bon modèle en direct, puis lance l'analyse si l'auto-start est coché
+  await resolveAndSyncModelsAtStartup();
+
   const vault = loadVault();
   if (localStorage.getItem(AUTO_ANALYZE_KEY) === "1" && vault.INTERVALS_API_KEY) {
-    setTimeout(() => {
-      const triggerBtn = document.getElementById("btn-analyze-1click");
-      if (triggerBtn && !triggerBtn.disabled) {
-        triggerBtn.click();
-      }
-    }, 600);
+    const triggerBtn = document.getElementById("btn-analyze-1click");
+    if (triggerBtn && !triggerBtn.disabled) {
+      triggerBtn.click();
+    }
   }
 });

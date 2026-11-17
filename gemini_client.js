@@ -162,7 +162,7 @@ async function callGeminiGenerateContent({ geminiApiKey, model, systemText, cont
     throw new Error("Clé API Gemini manquante.");
   }
 
-  const cleanModel = String(model || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+  const cleanModel = String(model || "gemini-4-hydrogen").trim() || "gemini-4-hydrogen";
   const endpoint = `${GEMINI_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
   const payload = {
@@ -267,7 +267,7 @@ export async function fetchAvailableGeminiModels(geminiApiKey) {
     .sort((a, b) => b.id.localeCompare(a.id));
 }
 
-export async function generateInitialSynthesis({ dailyBundle, geminiApiKey, model = "gemini-2.5-flash" }) {
+export async function generateInitialSynthesis({ dailyBundle, geminiApiKey, model = "gemini-4-hydrogen" }) {
   const contextPayload = buildInitialContextPayload(dailyBundle);
 
   const userPrompt = [
@@ -321,7 +321,7 @@ export async function sendChatMessage({
   conversationHistory = [],
   question,
   geminiApiKey,
-  model = "gemini-2.5-flash"
+  model = "gemini-4-hydrogen"
 }) {
   const cleanQuestion = String(question ?? "").trim();
   if (!cleanQuestion) {
@@ -355,6 +355,7 @@ export async function sendChatMessage({
     conversationHistory: [...nextHistory, modelTurn]
   };
 }
+
 
 
 
