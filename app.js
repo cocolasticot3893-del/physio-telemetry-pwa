@@ -1426,3 +1426,144 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 });
+
+
+/* ==========================================================================
+   DYNAMIC_CONTEXTUAL_CHIPS_V1 : Raccourcis de chat calés sur la séance du jour
+   ========================================================================== */
+const CHIPS_CACHE_KEY = "PHYSIOPULSE_DYNAMIC_CHIPS_V1";
+let cachedChipsContainer = null;
+
+function getChipsContainer() {
+  if (cachedChipsContainer && document.body.contains(cachedChipsContainer)) {
+    return cachedChipsContainer;
+  }
+  const existingChip = document.querySelector(".chip-btn");
+  if (existingChip && existingChip.parentElement) {
+    cachedChipsContainer = existingChip.parentElement;
+    return cachedChipsContainer;
+  }
+  return null;
+}
+
+function buildContextualChipsFromBundle(bundle) {
+  const chips = [];
+  if (!bundle || !Array.isArray(bundle.sessions) || bundle.sessions.length === 0) {
+    return [
+      "Analyse la charge et la récupération du jour",
+      "Calibre ma séance de demain",
+      "Stratégie nutritionnelle sans viande post-effort"
+    ];
+  }
+
+  const s = bundle.sessions[0];
+  const m = s.metrics || s.summary || s;
+  const w = bundle.wellness || s.wellness || {};
+  const sets = s.sets || s.detected_sets || s.series || [];
+  const intervals = s.intervals || s.work_intervals || [];
+  const incidents = s.incidents || s.auto_pauses || [];
+
+  const np = Math.round(m.np || m.normalized_power || 0);
+  const tss = Math.round(m.tss || m.training_load || 0);
+  const tcoreMax = m.tcore_max || m.max_tcore || null;
+  const decoupling = m.pa_hr ?? m.aerobic_decoupling ?? null;
+  const tsb = w.tsb ?? w.form ?? null;
+
+  // 1. Si séries ou intervalles détectés
+  if (sets.length > 0) {
+    const mainSet = sets[0];
+    const lbl = mainSet.label || `${mainSet.count || intervals.length} blocs`;
+    chips.push(`Analyse l'exécution et la dérive sur ${lbl}`);
+  } else if (intervals.length >= 2) {
+    chips.push(`Compare mes ${intervals.length} intervalles (Watts, FC, dérive)`);
+  } else {
+    chips.push(`Évalue mon endurance aérobie (${np} W, découplage ${decoupling ?? 0} %)`);
+  }
+
+  // 2. Si contrainte thermique ou incidents
+  if (tcoreMax && tcoreMax >= 38.0) {
+    chips.push(`Impact de Tcore ${Number(tcoreMax).toFixed(2)} °C sur mes seuils SV1/SV2`);
+  } else if (incidents.length > 0) {
+    chips.push(`Analyse les ${incidents.length} arrêts/incidents et la reprise`);
+  } else {
+    chips.push(`Analyse le rendement ventilation (VE/W) et couple/cadence`);
+  }
+
+  // 3. Calibrage séance suivante selon TSB / charge
+  if (tsb !== null && tsb < -20) {
+    chips.push(`Comment ajuster demain avec un TSB à ${Math.round(tsb)} ?`);
+  } else {
+    chips.push(`Quelle séance cibler demain après ${tss} TSS ?`);
+  }
+
+  // 4. Nutrition adaptée à la dépense énergétique
+  const kj = Math.round(m.work_kj || m.kilojoules || 0);
+  chips.push(kj > 1500
+    ? `Protocole glucides/protéines (sans viande) pour ${kj} kJ`
+    : `Recharge protéique et glycogénique sans viande adaptée`
+  );
+
+  return chips.slice(0, 4);
+}
+
+function renderDynamicChatChips(chipsList) {
+  const container = getChipsContainer();
+  if (!container || !Array.isArray(chipsList) || chipsList.length === 0) return;
+
+  container.innerHTML = "";
+  for (const q of chipsList) {
+    const cleanQ = String(q || "").trim();
+    if (!cleanQ) continue;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip-btn";
+    btn.setAttribute("data-question", cleanQ);
+    btn.textContent = cleanQ;
+    btn.addEventListener("click", () => handleChatSubmit(cleanQ));
+    container.appendChild(btn);
+  }
+}
+
+function extractAndApplySuggestedChips(rawText, fallbackBundle) {
+  let cleanedText = String(rawText || "");
+  let parsedChips = null;
+
+  const match = cleanedText.match(/SUGGESTED_CHIPS:\s*(\[[\s\S]*?\])\s*$/i);
+  if (match) {
+    cleanedText = cleanedText.replace(match[0], "").trim();
+    try {
+      const arr = JSON.parse(match[1]);
+      if (Array.isArray(arr) && arr.length > 0) {
+        parsedChips = arr.map(x => String(x).trim()).filter(Boolean).slice(0, 4);
+      }
+    } catch (_) {}
+  }
+
+  const finalChips = parsedChips || buildContextualChipsFromBundle(fallbackBundle);
+  localStorage.setItem(CHIPS_CACHE_KEY, JSON.stringify(finalChips));
+  renderDynamicChatChips(finalChips);
+  return cleanedText;
+}
+
+// Intercepte renderSafeMarkdown lors du rendu de la synthèse pour extraire SUGGESTED_CHIPS
+if (typeof renderSafeMarkdown === "function") {
+  const _origRenderSafeMarkdown = renderSafeMarkdown;
+  renderSafeMarkdown = function(mdText) {
+    const cleaned = extractAndApplySuggestedChips(mdText, typeof state !== "undefined" ? state.bundle : null);
+    return _origRenderSafeMarkdown(cleaned);
+  };
+}
+
+// Au chargement du cache, met immédiatement à jour les raccourcis avec les données de la séance en cache
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(() => {
+    try {
+      const savedChips = JSON.parse(localStorage.getItem(CHIPS_CACHE_KEY) || "null");
+      if (Array.isArray(savedChips) && savedChips.length > 0) {
+        renderDynamicChatChips(savedChips);
+      } else if (typeof state !== "undefined" && state.bundle) {
+        renderDynamicChatChips(buildContextualChipsFromBundle(state.bundle));
+      }
+    } catch (_) {}
+  }, 150);
+});

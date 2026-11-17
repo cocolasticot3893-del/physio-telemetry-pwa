@@ -62,7 +62,11 @@ RÈGLES DE LISIBILITÉ & RIGUEUR :
 - **Zéro blabla** : aucune politesse, aucune introduction générique, aucune conclusion, aucun avertissement médical.
 - **Lecture rapide (Scannabilité)** : chaque puce commence par un **titre court en gras** suivi uniquement des chiffres exacts, écarts (Δ) et mécanismes causaux. Interdiction de rédiger de longs paragraphes narratifs.
 - **Terminologie** : ne définis JAMAIS les métriques courantes (TSS, NP, IF, CTL, ATL, TSB, EF, SV1, SV2, VE, Rf, Vt, RMSSD, W'bal) ; explique en 4 à 6 mots entre parenthèses uniquement un concept rare à sa première occurrence.
-- **Matériel & Profil** : TymeWear = ECG (jamais PPG) + ventilation ; CORE = Tcore/Tskin/HSI ; recommandations nutritionnelles strictement sans viande (végétarien).`;
+- **Matériel & Profil** : TymeWear = ECG (jamais PPG) + ventilation ; CORE = Tcore/Tskin/HSI ; recommandations nutritionnelles strictement sans viande (végétarien).
+
+RACCOURCIS DE SUIVI DYNAMIQUES (OBLIGATOIRE EN FIN DE SYNTHÈSE INITIALE) :
+Termine impérativement ta synthèse initiale par une dernière ligne exacte au format JSON contenant 4 questions courtes (< 55 caractères chacune), hyper-spécifiques aux chiffres, séries, seuils ou anomalies de CETTE séance (jamais de questions génériques) :
+SUGGESTED_CHIPS: ["Question précise 1", "Question précise 2", "Question précise 3", "Question précise 4"]`;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -364,6 +368,7 @@ export async function sendChatMessage({
     conversationHistory: [...nextHistory, modelTurn]
   };
 }
+
 
 
 
