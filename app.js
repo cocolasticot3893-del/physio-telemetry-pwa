@@ -1291,3 +1291,83 @@ document.addEventListener("DOMContentLoaded", () => {
   restoreCachedReport();
 });
 
+
+
+/* ==========================================================================
+   AUTO_SYNC_GEMINI_MODELS_V1 : Cache localStorage + Sync silencieux au démarrage
+   ========================================================================== */
+const MODELS_CACHE_KEY = "PHYSIOPULSE_CACHED_MODELS_V1";
+
+function hydrateModelsSelectFromCache() {
+  const selectEl = document.getElementById("llm-model") || document.querySelector("select[id*='model']");
+  if (!selectEl) return;
+  const savedVault = loadVault();
+  const targetModel = savedVault.LLM_MODEL || localStorage.getItem("LLM_MODEL") || "";
+
+  try {
+    const rawCache = localStorage.getItem(MODELS_CACHE_KEY);
+    if (rawCache) {
+      const models = JSON.parse(rawCache);
+      if (Array.isArray(models) && models.length > 0) {
+        selectEl.innerHTML = "";
+        for (const m of models) {
+          const id = typeof m === "string" ? m : (m.id || m.name || "").replace(/^models\//, "");
+          const label = typeof m === "string" ? m : (m.displayName ? `${id} — ${m.displayName}` : id);
+          if (!id) continue;
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = label;
+          selectEl.appendChild(opt);
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (targetModel) {
+    if (![...selectEl.options].some(o => o.value === targetModel)) {
+      const opt = document.createElement("option");
+      opt.value = targetModel;
+      opt.textContent = targetModel;
+      selectEl.appendChild(opt);
+    }
+    selectEl.value = targetModel;
+  }
+}
+
+async function autoRefreshGeminiModelsSilently() {
+  const selectEl = document.getElementById("llm-model") || document.querySelector("select[id*='model']");
+  if (!selectEl) return;
+
+  hydrateModelsSelectFromCache();
+
+  const currentVault = loadVault();
+  const apiKey = (currentVault.GEMINI_API_KEY || "").trim();
+  const preferredModel = currentVault.LLM_MODEL || selectEl.value;
+  if (!apiKey) return;
+
+  try {
+    const models = await fetchAvailableGeminiModels(apiKey);
+    if (Array.isArray(models) && models.length > 0) {
+      localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(models));
+      selectEl.innerHTML = "";
+      for (const m of models) {
+        const id = typeof m === "string" ? m : (m.id || m.name || "").replace(/^models\//, "");
+        const label = typeof m === "string" ? m : (m.displayName ? `${id} — ${m.displayName}` : id);
+        if (!id) continue;
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = label;
+        selectEl.appendChild(opt);
+      }
+      if (preferredModel && [...selectEl.options].some(o => o.value === preferredModel)) {
+        selectEl.value = preferredModel;
+      }
+    }
+  } catch (_) {
+    // Échec réseau silencieux : le cache localStorage reste actif
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  autoRefreshGeminiModelsSilently();
+});
