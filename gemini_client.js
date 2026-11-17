@@ -1,3 +1,25 @@
+﻿// DIAGNOSTIC_API_VISIBLE : intercepte toute erreur HTTP/CORS sur generativelanguage.googleapis.com
+(function() {
+  const origFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+    if (url.includes('generativelanguage.googleapis.com') && url.includes('generateContent')) {
+      try {
+        const res = await origFetch.apply(this, args);
+        if (!res.ok) {
+          const clone = res.clone();
+          const errBody = await clone.text();
+          alert(`Erreur HTTP Gemini (${res.status}) sur ${url.split('/models/')[1]?.split(':')[0]} :\n${errBody.slice(0, 300)}`);
+        }
+        return res;
+      } catch (netErr) {
+        alert(`Erreur Réseau/CORS Gemini : ${netErr.message}`);
+        throw netErr;
+      }
+    }
+    return origFetch.apply(this, args);
+  };
+})();
 /**
  * Client direct Gemini API (v1beta generateContent) + Prompt "First Principles".
  * Zéro dépendance, zéro backend, conversation multi-tours en mémoire.
@@ -323,3 +345,4 @@ export async function sendChatMessage({
     conversationHistory: [...nextHistory, modelTurn]
   };
 }
+

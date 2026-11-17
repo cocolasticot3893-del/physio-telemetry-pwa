@@ -1,17 +1,24 @@
-{
-  "name": "PhysioPulse Telemetry PWA",
+﻿{
+  "name": "PhysioPulse Telemetry",
   "short_name": "PhysioPulse",
-  "start_url": "./",
+  "description": "Analyse physiologique 1 Hz et Chat Gemini pour Intervals.icu",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "theme_color": "#0f172a",
-  "background_color": "#0b1120",
-  "lang": "fr",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "./icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

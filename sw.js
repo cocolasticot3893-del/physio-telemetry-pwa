@@ -1,5 +1,5 @@
-/* Service Worker PhysioPulse Telemetry — Network-First App Shell (zéro cache API externe) */
-const CACHE_NAME = "physiopulse-static-v2";
+﻿/* Service Worker PhysioPulse Telemetry — Network-First App Shell (zéro cache API externe) */
+const CACHE_NAME = "physiopulse-static-v2-png-fix";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,7 +10,7 @@ const ASSETS = [
   "./gemini_client.js",
   "./app.js",
   "./manifest.webmanifest",
-  "./icon.svg"
+  "./icon-192.png', './icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -71,3 +71,4 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
