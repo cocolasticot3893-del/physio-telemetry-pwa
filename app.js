@@ -1371,3 +1371,49 @@ async function autoRefreshGeminiModelsSilently() {
 document.addEventListener("DOMContentLoaded", () => {
   autoRefreshGeminiModelsSilently();
 });
+
+
+
+/* ==========================================================================
+   AUTO_ANALYZE_STARTUP_V1 : Migration modèle API réel + Auto-Sync ouverture
+   ========================================================================== */
+const AUTO_ANALYZE_KEY = "PHYSIOPULSE_AUTO_ANALYZE_STARTUP";
+
+function migrateLegacyModelAlias() {
+  try {
+    const rawVault = localStorage.getItem("GLOBAL_ATHLETE_VAULT_V1");
+    if (rawVault) {
+      const v = JSON.parse(rawVault);
+      if (v.LLM_MODEL === "gemini-4-hydrogen" || !v.LLM_MODEL) {
+        v.LLM_MODEL = "gemini-2.5-flash";
+        localStorage.setItem("GLOBAL_ATHLETE_VAULT_V1", JSON.stringify(v));
+      }
+    }
+    if (localStorage.getItem("LLM_MODEL") === "gemini-4-hydrogen") {
+      localStorage.setItem("LLM_MODEL", "gemini-2.5-flash");
+    }
+  } catch (_) {}
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  migrateLegacyModelAlias();
+
+  const autoChk = document.getElementById("auto-analyze-startup");
+  if (autoChk) {
+    autoChk.checked = localStorage.getItem(AUTO_ANALYZE_KEY) === "1";
+    autoChk.addEventListener("change", () => {
+      localStorage.setItem(AUTO_ANALYZE_KEY, autoChk.checked ? "1" : "0");
+    });
+  }
+
+  // Synchronisation automatique au démarrage si activée et clés présentes
+  const vault = loadVault();
+  if (localStorage.getItem(AUTO_ANALYZE_KEY) === "1" && vault.INTERVALS_API_KEY) {
+    setTimeout(() => {
+      const triggerBtn = document.getElementById("btn-analyze-1click");
+      if (triggerBtn && !triggerBtn.disabled) {
+        triggerBtn.click();
+      }
+    }, 600);
+  }
+});

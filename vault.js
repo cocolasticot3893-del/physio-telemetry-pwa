@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Coffre-fort local unifié (GitHub Pages / même origine).
  * Synchronise l'objet JSON GLOBAL_ATHLETE_VAULT_V1 et les 4 clés plates localStorage.
  */
@@ -224,3 +224,4 @@ export function importVaultJson(jsonText) {
 
   return saveVault(patch);
 }
+

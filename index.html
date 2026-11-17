@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
@@ -128,7 +128,11 @@
         </label>
 
         <div class="vault-actions">
-          <button type="submit" id="btn-vault-save" class="btn btn-primary btn-sm">Enregistrer dans le coffre-fort</button>
+          <div style="display:flex;align-items:center;gap:8px;margin:10px 0;padding:8px 10px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;">
+  <input type="checkbox" id="auto-analyze-startup" style="width:18px;height:18px;accent-color:#10b981;cursor:pointer;" />
+  <label for="auto-analyze-startup" style="font-size:0.85rem;font-weight:600;cursor:pointer;margin:0;">⚡ Lancer automatiquement la synchronisation & l'analyse à l'ouverture de l'appli</label>
+</div>
+<button type="submit" id="btn-vault-save" class="btn btn-primary btn-sm">Enregistrer dans le coffre-fort</button>
           <button type="button" id="btn-vault-export" class="btn btn-secondary btn-sm">Exporter Coffre JSON</button>
           <button type="button" id="btn-vault-import" class="btn btn-outline btn-sm">Importer Coffre JSON</button>
           <input type="file" id="vault-import-file" accept=".json,application/json" hidden>
@@ -380,3 +384,5 @@
   <script type="module" src="./app.js"></script>
 </body>
 </html>
+
+
