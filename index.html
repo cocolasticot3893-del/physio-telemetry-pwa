@@ -10,7 +10,7 @@
   } catch {}
   </script>
   <meta name="theme-color" content="#0f172a">
-  <meta name="description" content="PhysioPulse Telemetry â€” PWA mobile-first : Intervals.icu, maths essentielles 1 Hz et synthese Gemini.">
+  <meta name="description" content="PhysioPulse Telemetry - PWA mobile-first : Intervals.icu, maths essentielles 1 Hz et synthese Gemini.">
   <title>PhysioPulse Telemetry</title>
   <link rel="icon" type="image/svg+xml" href="./icon.svg">
   <link rel="apple-touch-icon" href="./icon-192.png">
@@ -26,7 +26,7 @@
         <img src="./icon.svg" alt="" class="brand-icon" width="32" height="32">
         <div class="brand-text">
           <span class="brand-title">PhysioPulse</span>
-          <span class="brand-sub">Telemetry 1 Hz â€¢ Mobile-First</span>
+          <span class="brand-sub">Telemetry 1 Hz &bull; Mobile-First</span>
         </div>
       </div>
 
@@ -48,7 +48,7 @@
         </span>
 
         <button type="button" id="btn-vault-toggle" class="icon-btn" aria-expanded="false" aria-controls="vault-drawer" title="Coffre-fort et parametres">
-          <span aria-hidden="true">âš™ï¸</span>
+          <span aria-hidden="true">&#9881;&#65039;</span>
           <span class="sr-only">Ouvrir le coffre-fort</span>
         </button>
 
@@ -67,7 +67,6 @@
   </header>
 
   <main id="main-content" class="app-shell">
-    <!-- Tiroir Coffre-Fort -->
     <section id="vault-drawer" class="card vault-drawer" aria-labelledby="vault-heading" hidden>
       <div class="vault-header">
         <div>
@@ -110,7 +109,7 @@
               <option value="gemini-3.5-flash">gemini-3.5-flash</option>
               <option value="gemini-flash-latest">gemini-flash-latest</option>
             </select>
-            <button type="button" id="refresh-models-btn" class="btn btn-outline btn-xs" title="Actualiser la liste des modeles Gemini" aria-label="Actualiser les modeles Gemini">â†»</button>
+            <button type="button" id="refresh-models-btn" class="btn btn-outline btn-xs" title="Actualiser la liste des modeles Gemini" aria-label="Actualiser les modeles Gemini">&#8635;</button>
           </div>
         </div>
 
@@ -126,7 +125,7 @@
 
         <div class="auto-analyze-row">
           <input type="checkbox" id="auto-analyze-startup" class="auto-analyze-check">
-          <label for="auto-analyze-startup" class="auto-analyze-label">âš¡ Lancer l'analyse 1-Click automatiquement a l'ouverture</label>
+          <label for="auto-analyze-startup" class="auto-analyze-label">&#9889; Lancer l'analyse 1-Click automatiquement a l'ouverture</label>
         </div>
 
         <div class="vault-actions">
@@ -146,11 +145,10 @@
       </div>
     </section>
 
-    <!-- Zone 1-Click -->
     <section class="quick-actions card" aria-label="Analyse 1-Click">
       <div class="oneclick-row">
         <button type="button" id="btn-analyze-1click" class="btn btn-primary btn-hero">
-          <span aria-hidden="true">âš¡</span>
+          <span aria-hidden="true">&#9889;</span>
           <span>Analyser ma journee (1-Click)</span>
         </button>
 
@@ -178,18 +176,15 @@
       <div id="status-alert" class="alert-banner" role="alert" hidden></div>
     </section>
 
-    <!-- Onglets Multi-Seances -->
     <nav id="session-tabs-bar" class="session-tabs" aria-label="Seances du jour" hidden>
       <div id="session-tabs-list" class="tabs-scroller" role="tablist"></div>
     </nav>
 
-    <!-- Etat initial -->
     <section id="empty-state" class="card empty-state">
       <h1>Analyse Physiologique 1-Click</h1>
-      <p>Verifiez vos cles via <strong>âš™ï¸</strong> puis cliquez sur <strong>âš¡ Analyser ma journee</strong> pour calculer les maths essentielles (moyennes, intervalles, derives, seuils) et obtenir le verdict Gemini.</p>
+      <p>Verifiez vos cles via <strong>&#9881;&#65039;</strong> puis cliquez sur <strong>&#9889; Analyser ma journee</strong> pour calculer les maths essentielles (moyennes, intervalles, derives, seuils) et obtenir le verdict Gemini.</p>
     </section>
 
-    <!-- Conteneur du rapport -->
     <div id="report-root" hidden>
       <section class="report-part" aria-labelledby="part1-heading">
         <div class="section-header">
@@ -217,17 +212,17 @@
 
           <div class="dual-cards verdict-dual">
             <div class="sub-panel">
-              <h3><span aria-hidden="true">âœ…</span> Points Forts</h3>
+              <h3><span aria-hidden="true">&#9989;</span> Points Forts</h3>
               <ul id="strengths-list" class="bullet-list"></ul>
             </div>
             <div class="sub-panel">
-              <h3><span aria-hidden="true">âš ï¸</span> Points de Rupture</h3>
+              <h3><span aria-hidden="true">&#9888;&#65039;</span> Points de Rupture</h3>
               <ul id="breaking-points-list" class="bullet-list"></ul>
             </div>
           </div>
 
           <div class="sub-panel verdict-priorities">
-            <h3>Axes Prioritaires (24â€“48 h)</h3>
+            <h3>Axes Prioritaires (24&ndash;48 h)</h3>
             <ol id="priorities-list" class="priorities-list"></ol>
           </div>
 
@@ -245,7 +240,6 @@
         <div id="kpi-grid" class="kpi-grid" aria-label="Indicateurs cles"></div>
       </section>
 
-      <!-- AccordÃ©ons essentiels (fermÃ©s par dÃ©faut pour garder la vue mobile ultra-lisible) -->
       <section class="accordion card" id="tech-accordion" aria-labelledby="tech-heading">
         <div class="accordion-toolbar">
           <h2 id="tech-heading" class="part-title">Maths Essentielles de Seance</h2>
@@ -256,7 +250,7 @@
         </div>
 
         <details id="sec-intervals">
-          <summary><span class="summary-title">1. Intervalles de Travail &amp; Derives (1 â†’ N / Debut-Fin)</span></summary>
+          <summary><span class="summary-title">1. Intervalles de Travail &amp; Derives (1 &rarr; N / Debut-Fin)</span></summary>
           <div class="details-body">
             <div id="triptych-container" class="triptych-grid"></div>
 
@@ -265,7 +259,7 @@
             </div>
             <div id="wrapper-drift-table" tabindex="0" role="region" aria-labelledby="drift-table-caption" class="table-wrapper">
               <table id="table-drift">
-                <caption id="drift-table-caption">Derive intra-serie (1 â†’ N)</caption>
+                <caption id="drift-table-caption">Derive intra-serie (1 &rarr; N)</caption>
                 <thead></thead>
                 <tbody></tbody>
               </table>
@@ -276,7 +270,7 @@
             </div>
             <div id="wrapper-work-table" tabindex="0" role="region" aria-labelledby="work-table-caption" class="table-wrapper">
               <table id="table-work">
-                <caption id="work-table-caption">Intervalles de travail essentiels (Puissance, FC, EF, Ventilation, DFA Î±â‚, Tcore)</caption>
+                <caption id="work-table-caption">Intervalles de travail essentiels (Puissance, FC, EF, Ventilation, DFA &alpha;1, Tcore)</caption>
                 <thead></thead>
                 <tbody></tbody>
               </table>
@@ -285,7 +279,7 @@
         </details>
 
         <details id="sec-thresholds">
-          <summary><span class="summary-title">2. Seuils SVâ‚ / SVâ‚‚ (Normothermie vs Hyperthermie)</span></summary>
+          <summary><span class="summary-title">2. Seuils SV1 / SV2 (Normothermie vs Hyperthermie)</span></summary>
           <div class="details-body">
             <div id="thresholds-container" class="thresholds-grid"></div>
           </div>
@@ -299,7 +293,6 @@
         </details>
       </section>
 
-      <!-- Chat Multi-Tours -->
       <section id="chat-section" class="card chat-section" aria-labelledby="chat-heading">
         <div class="chat-header">
           <h2 id="chat-heading" class="part-title">Chat Gemini (Suivi de la Journee)</h2>
@@ -320,7 +313,7 @@
   </main>
 
   <button type="button" id="fab-ask" class="fab-ask" hidden aria-label="Aller au chat Gemini">
-    <span aria-hidden="true">ðŸ’¬</span>
+    <span aria-hidden="true">&#128172;</span>
     <span>Question</span>
   </button>
 

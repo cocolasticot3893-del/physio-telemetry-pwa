@@ -1,5 +1,5 @@
 /**
- * PhysioPulse Telemetry â€” Controleur UI PWA Mobile-First (ES Module)
+ * PhysioPulse Telemetry - Controleur UI PWA Mobile-First (ES Module)
  * Orchestre vault.js, intervals_client.js, physio_engine.js et gemini_client.js.
  */
 
@@ -74,7 +74,7 @@ function escapeHtml(value) {
 }
 
 function fmt(val, suffix = "", digits = null) {
-  if (val === null || val === undefined || val === "" || Number.isNaN(val)) return "â€”";
+  if (val === null || val === undefined || val === "" || Number.isNaN(val)) return "\u2014";
   if (typeof val === "number") {
     const out = digits !== null ? val.toFixed(digits) : Number.isInteger(val) ? String(val) : val.toFixed(2);
     return suffix ? `${out} ${suffix}`.trim() : out;
@@ -83,7 +83,7 @@ function fmt(val, suffix = "", digits = null) {
 }
 
 function fmtSigned(val, suffix = "", digits = 2) {
-  if (val === null || val === undefined || Number.isNaN(Number(val))) return "â€”";
+  if (val === null || val === undefined || Number.isNaN(Number(val))) return "\u2014";
   const num = Number(val);
   const sign = num > 0 ? "+" : "";
   return `${sign}${num.toFixed(digits)}${suffix ? ` ${suffix}` : ""}`;
@@ -146,7 +146,7 @@ function renderSafeMarkdown(rawText) {
       continue;
     }
 
-    const ulMatch = trimmed.match(/^[-*â€¢]\s+(.+)$/);
+    const ulMatch = trimmed.match(/^[-*\u2022]\s+(.+)$/);
     if (ulMatch) {
       if (inOl) { out.push("</ol>"); inOl = false; }
       if (!inUl) { out.push("<ul>"); inUl = true; }
@@ -230,7 +230,7 @@ function renderModelOptions(selectEl, modelsList, selectedId) {
   for (const m of modelsList) {
     const id = String(typeof m === "string" ? m : m?.id || "").replace(/^models\//, "");
     if (!id) continue;
-    const label = typeof m === "string" ? id : m.displayName && m.displayName !== id ? `${id} â€” ${m.displayName}` : id;
+    const label = typeof m === "string" ? id : m.displayName && m.displayName !== id ? `${id} \u2014 ${m.displayName}` : id;
     const opt = document.createElement("option");
     opt.value = id;
     opt.textContent = label;
@@ -697,7 +697,7 @@ function renderTabs(bundle) {
     { id: "summary", label: `Journee (${sessions.length})` },
     ...sessions.map((s, idx) => ({
       id: `session-${idx}`,
-      label: `S${idx + 1} Â· ${s.meta?.name || `Activite ${idx + 1}`}`
+      label: `S${idx + 1} \u00B7 ${s.meta?.name || `Activite ${idx + 1}`}`
     }))
   ];
 
@@ -735,7 +735,7 @@ function renderConsolidatedCard(bundle) {
     ["D+", fmt(ds.elevation_gain_m, "m", 0)],
     ["TSS", fmt(ds.tss, "", 0)],
     ["NP pond.", fmt(ds.np_weighted_w, "W", 0)],
-    ["Tcore max", fmt(ds.tcore_max_day, "Â°C", 2)]
+    ["Tcore max", fmt(ds.tcore_max_day, "\u00B0C", 2)]
   ];
 
   $("day-consolidated-metrics").innerHTML = stats
@@ -746,7 +746,7 @@ function renderConsolidatedCard(bundle) {
   if (ds.inter_session_drift) {
     const d = ds.inter_session_drift;
     evo.hidden = false;
-    evo.textContent = `${d.from_session} -> ${d.to_session} : Î”Î±â‚ ${fmtSigned(d.delta_alpha1, "", 2)} | Î”EF ${fmtSigned(d.delta_ef_pct ?? d.delta_ef_np_pct, "%", 1)} | Î”Tcore ${fmtSigned(d.delta_tcore_max_c, "Â°C", 2)}`;
+    evo.textContent = `${d.from_session} -> ${d.to_session} : \u0394\u03B11 ${fmtSigned(d.delta_alpha1, "", 2)} | \u0394EF ${fmtSigned(d.delta_ef_pct ?? d.delta_ef_np_pct, "%", 1)} | \u0394Tcore ${fmtSigned(d.delta_tcore_max_c, "\u00B0C", 2)}`;
   } else {
     evo.hidden = true;
   }
@@ -762,20 +762,20 @@ function buildLocalMetricsFallback(session) {
     if (g.aerobic_decoupling_pa_hr_pct <= 5) strengths.push(`Decouplage Pa:Hr maitrise (${g.aerobic_decoupling_pa_hr_pct.toFixed(1)} %).`);
     else breaking.push(`Derive cardiovasculaire Pa:Hr marquee (${g.aerobic_decoupling_pa_hr_pct.toFixed(1)} %).`);
   }
-  if ((g.tcore_max ?? 0) >= 38.1) breaking.push(`Contrainte thermique : Tcore max ${fmt(g.tcore_max, "Â°C", 2)} (HSI max ${fmt(g.hsi_max, "", 1)}).`);
+  if ((g.tcore_max ?? 0) >= 38.1) breaking.push(`Contrainte thermique : Tcore max ${fmt(g.tcore_max, "\u00B0C", 2)} (HSI max ${fmt(g.hsi_max, "", 1)}).`);
   if (strengths.length === 0) strengths.push("Donnees 1 Hz calculees localement sans anomalie critique.");
   if (breaking.length === 0) breaking.push("Aucune rupture majeure detectee sur les seuils locaux.");
 
   return {
-    verdict: `Synthese locale â€” ${session?.meta?.name || "Seance"}`,
-    daily_synthesis: `NP ${fmt(g.normalized_power_w, "W", 0)} â€¢ FC moy ${fmt(g.avg_hr_bpm, "bpm", 0)} â€¢ Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)} â€¢ Ve ${fmt(g.ve_mean, "L/min", 1)} â€¢ Tcore max ${fmt(g.tcore_max, "Â°C", 2)}.`,
+    verdict: `Synthese locale \u2014 ${session?.meta?.name || "Seance"}`,
+    daily_synthesis: `NP ${fmt(g.normalized_power_w, "W", 0)} \u2022 FC moy ${fmt(g.avg_hr_bpm, "bpm", 0)} \u2022 Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)} \u2022 Ve ${fmt(g.ve_mean, "L/min", 1)} \u2022 Tcore max ${fmt(g.tcore_max, "\u00B0C", 2)}.`,
     strengths,
     breaking_points: breaking,
     priority_axes: [
       { title: "Charge & Recuperation", metric_basis: `TSS ${fmt(g.tss, "", 0)} / Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)}`, action: "Ajuster le volume/intensite de demain selon HRV/Handgrip/PVT du matin." },
-      { title: "Thermoregulation", metric_basis: `Tcore max ${fmt(g.tcore_max, "Â°C", 2)}`, action: "Refroidissement actif et sodium 700-900 mg/L si chaleur." }
+      { title: "Thermoregulation", metric_basis: `Tcore max ${fmt(g.tcore_max, "\u00B0C", 2)}`, action: "Refroidissement actif et sodium 700-900 mg/L si chaleur." }
     ],
-    technical_notes: `Artefacts ECG : ${fmt(g.artifacts_mean_pct, "%", 1)} (validite DFA Î±â‚ : ${fmt(g.alpha1_valid_pct, "%", 1)}).`
+    technical_notes: `Artefacts ECG : ${fmt(g.artifacts_mean_pct, "%", 1)} (validite DFA \u03B11 : ${fmt(g.alpha1_valid_pct, "%", 1)}).`
   };
 }
 
@@ -787,7 +787,7 @@ function renderVerdict(session, bundle) {
 
   if (bundle?.gemini_error) {
     errorBox.hidden = false;
-    errorBox.textContent = `Gemini indisponible (${bundle.gemini_error}) â€” Resume mathematique local affiche.`;
+    errorBox.textContent = `Gemini indisponible (${bundle.gemini_error}) \u2014 Resume mathematique local affiche.`;
   } else {
     errorBox.hidden = true;
     errorBox.textContent = "";
@@ -802,7 +802,7 @@ function renderVerdict(session, bundle) {
   badge.textContent = gem ? `GEMINI (${bundle.gemini_model_used || state.vault.LLM_MODEL})` : "RESUME LOCAL";
 
   $("verdict-title").textContent = v.verdict || session?.meta?.name || "Verdict";
-  $("verdict-summary").textContent = v.daily_synthesis || "â€”";
+  $("verdict-summary").textContent = v.daily_synthesis || "\u2014";
 
   const strengths = Array.isArray(v.strengths) ? v.strengths : [];
   const breaks = Array.isArray(v.breaking_points) ? v.breaking_points : [];
@@ -820,7 +820,7 @@ function renderVerdict(session, bundle) {
           const title = ax?.title || "Axe";
           const action = ax?.action || "";
           const basis = ax?.metric_basis ? `<span class="priority-target">Base : ${escapeHtml(ax.metric_basis)}</span>` : "";
-          return `<li><strong>${escapeHtml(title)}</strong>${action ? ` â€” ${escapeHtml(action)}` : ""}${basis}</li>`;
+          return `<li><strong>${escapeHtml(title)}</strong>${action ? ` \u2014 ${escapeHtml(action)}` : ""}${basis}</li>`;
         })
         .join("")
     : "<li>Aucun axe prioritaire.</li>";
@@ -858,7 +858,7 @@ function renderWellness(bundle) {
     ["Readiness", fmt(w.readiness, "/100", 0)],
     ["Handgrip D/G", handgrip],
     ["PVT", pvt]
-  ].filter(([, val]) => val && val !== "â€”" && val !== "â€” / â€” / â€”");
+  ].filter(([, val]) => val && val !== "\u2014" && val !== "\u2014 / \u2014 / \u2014");
 
   if (items.length === 0) {
     card.hidden = true;
@@ -882,15 +882,15 @@ function renderKpiGrid(session) {
       label: "Volume & Charge",
       badge: session.meta?.type || "Ride",
       tone: "info",
-      main: `${formatSecondsHms(g.moving_time_s)} Â· ${fmt(g.distance_km, "km", 1)}`,
-      sub: `D+ ${fmt(g.elevation_gain_m, "m", 0)} â€¢ TSS ${fmt(g.tss, "", 0)} â€¢ ${fmt(g.work_kj, "kJ", 0)}`
+      main: `${formatSecondsHms(g.moving_time_s)} \u00B7 ${fmt(g.distance_km, "km", 1)}`,
+      sub: `D+ ${fmt(g.elevation_gain_m, "m", 0)} \u2022 TSS ${fmt(g.tss, "", 0)} \u2022 ${fmt(g.work_kj, "kJ", 0)}`
     },
     {
       label: "Puissance & W'bal",
       badge: g.intensity_factor ? `IF ${g.intensity_factor.toFixed(2)}` : "W'",
       tone: (g.w_prime_min_pct ?? 100) < 25 ? "warn" : "ok",
       main: `${fmt(g.avg_power_w, "W", 0)} / NP ${fmt(g.normalized_power_w, "W", 0)}`,
-      sub: `W'bal min : ${fmt(g.w_prime_min_pct, "%", 1)} â€¢ Cad ${fmt(g.avg_cadence_rpm, "rpm", 0)}`
+      sub: `W'bal min : ${fmt(g.w_prime_min_pct, "%", 1)} \u2022 Cad ${fmt(g.avg_cadence_rpm, "rpm", 0)}`
     },
     {
       label: "Cardiaque ECG & Pa:Hr",
@@ -904,20 +904,20 @@ function renderKpiGrid(session) {
       badge: "Ve / Rf / Vt",
       tone: "info",
       main: `Ve ${fmt(g.ve_mean, "L/min", 1)} (max ${fmt(g.ve_max, "", 0)})`,
-      sub: `Rf ${fmt(g.rf_mean, "/min", 1)} â€¢ Vt ${fmt(g.vt_mean_l, "L", 2)} â€¢ Ve/100W ${fmt(g.ve_per_100w_mean, "", 1)}`
+      sub: `Rf ${fmt(g.rf_mean, "/min", 1)} \u2022 Vt ${fmt(g.vt_mean_l, "L", 2)} \u2022 Ve/100W ${fmt(g.ve_per_100w_mean, "", 1)}`
     },
     {
       label: "Thermoregulation CORE",
       badge: (g.tcore_max ?? 0) > 38.1 ? "Chaleur" : "Normo",
       tone: (g.tcore_max ?? 0) > 38.5 ? "crit" : (g.tcore_max ?? 0) > 38.1 ? "warn" : "ok",
-      main: `Tcore max ${fmt(g.tcore_max, "Â°C", 2)}`,
-      sub: `Moy ${fmt(g.tcore_mean, "Â°C", 2)} â€¢ HSI max ${fmt(g.hsi_max, "", 1)}`
+      main: `Tcore max ${fmt(g.tcore_max, "\u00B0C", 2)}`,
+      sub: `Moy ${fmt(g.tcore_mean, "\u00B0C", 2)} \u2022 HSI max ${fmt(g.hsi_max, "", 1)}`
     },
     {
-      label: "DFA Î±â‚ (ECG)",
+      label: "DFA \u03B11 (ECG)",
       badge: `Art ${fmt(g.artifacts_mean_pct, "%", 1)}`,
       tone: (g.artifacts_mean_pct ?? 0) > 5 ? "warn" : "info",
-      main: `Î±â‚ moy ${fmt(g.alpha1_filtered_mean, "", 2)}`,
+      main: `\u03B11 moy ${fmt(g.alpha1_filtered_mean, "", 2)}`,
       sub: `Validite signal : ${fmt(g.alpha1_valid_pct, "%", 1)}`
     }
   ];
@@ -947,7 +947,7 @@ function populateResponsiveTable(tableId, columns, rows) {
   thead.innerHTML = `<tr>${columns.map((c) => `<th scope="col">${escapeHtml(c)}</th>`).join("")}</tr>`;
 
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = `<tr><th scope="row">â€”</th><td colspan="${Math.max(1, columns.length - 1)}">Aucune donnee.</td></tr>`;
+    tbody.innerHTML = `<tr><th scope="row">\u2014</th><td colspan="${Math.max(1, columns.length - 1)}">Aucune donnee.</td></tr>`;
     return;
   }
 
@@ -973,13 +973,13 @@ function renderIntervalsAndDrifts(session) {
 
   const panels = [];
   if (drv.found) {
-    panels.push(`<article class="sub-panel"><h3>Derive Debut â†’ Fin</h3><p>${escapeHtml(drv.early_interval.label)} â†’ ${escapeHtml(drv.late_interval.label)} : Î”EF ${escapeHtml(fmtSigned(drv.deltas?.delta_ef_pct, "%", 1))}, Î”FC ${escapeHtml(fmtSigned(drv.deltas?.delta_hr_bpm, "bpm", 0))}, Î”Tcore ${escapeHtml(fmtSigned(drv.deltas?.delta_tcore_c, "Â°C", 2))}, Î”Î±â‚ ${escapeHtml(fmtSigned(drv.deltas?.delta_alpha1, "", 2))}.</p></article>`);
+    panels.push(`<article class="sub-panel"><h3>Derive Debut \u2192 Fin</h3><p>${escapeHtml(drv.early_interval.label)} \u2192 ${escapeHtml(drv.late_interval.label)} : \u0394EF ${escapeHtml(fmtSigned(drv.deltas?.delta_ef_pct, "%", 1))}, \u0394FC ${escapeHtml(fmtSigned(drv.deltas?.delta_hr_bpm, "bpm", 0))}, \u0394Tcore ${escapeHtml(fmtSigned(drv.deltas?.delta_tcore_c, "\u00B0C", 2))}, \u0394\u03B11 ${escapeHtml(fmtSigned(drv.deltas?.delta_alpha1, "", 2))}.</p></article>`);
   }
   if (cad.found) {
-    panels.push(`<article class="sub-panel"><h3>Effet Cadence</h3><p>${escapeHtml(fmt(cad.low_cad_interval.cadence_rpm, "rpm", 0))} vs ${escapeHtml(fmt(cad.high_cad_interval.cadence_rpm, "rpm", 0))} : Î”FC ${escapeHtml(fmtSigned(cad.deltas?.delta_hr_bpm, "bpm", 0))}, Î”EF ${escapeHtml(fmtSigned(cad.deltas?.delta_ef_pct, "%", 1))}, Î”Î±â‚ ${escapeHtml(fmtSigned(cad.deltas?.delta_alpha1, "", 2))}.</p></article>`);
+    panels.push(`<article class="sub-panel"><h3>Effet Cadence</h3><p>${escapeHtml(fmt(cad.low_cad_interval.cadence_rpm, "rpm", 0))} vs ${escapeHtml(fmt(cad.high_cad_interval.cadence_rpm, "rpm", 0))} : \u0394FC ${escapeHtml(fmtSigned(cad.deltas?.delta_hr_bpm, "bpm", 0))}, \u0394EF ${escapeHtml(fmtSigned(cad.deltas?.delta_ef_pct, "%", 1))}, \u0394\u03B11 ${escapeHtml(fmtSigned(cad.deltas?.delta_alpha1, "", 2))}.</p></article>`);
   }
   if (par.found) {
-    panels.push(`<article class="sub-panel"><h3>Impact Thermique</h3><p>Bloc chaud vs refroidi : Î”P ${escapeHtml(fmtSigned(par.deltas?.delta_p_w, "W", 0))}, Î”Tcore ${escapeHtml(fmtSigned(par.deltas?.delta_tcore_c, "Â°C", 2))}, Î”Î±â‚ ${escapeHtml(fmtSigned(par.deltas?.delta_alpha1, "", 2))}.</p></article>`);
+    panels.push(`<article class="sub-panel"><h3>Impact Thermique</h3><p>Bloc chaud vs refroidi : \u0394P ${escapeHtml(fmtSigned(par.deltas?.delta_p_w, "W", 0))}, \u0394Tcore ${escapeHtml(fmtSigned(par.deltas?.delta_tcore_c, "\u00B0C", 2))}, \u0394\u03B11 ${escapeHtml(fmtSigned(par.deltas?.delta_alpha1, "", 2))}.</p></article>`);
   }
   $("triptych-container").innerHTML = panels.length
     ? panels.join("")
@@ -989,16 +989,16 @@ function renderIntervalsAndDrifts(session) {
   const driftRows = series.map((grp) => {
     const d = grp.drift_1_to_n;
     return [
-      `${grp.series_id} (${d.from_label}â†’${d.to_label})`,
+      `${grp.series_id} (${d.from_label}\u2192${d.to_label})`,
       `${grp.interval_count} blocs`,
       fmtSigned(d.delta_power_w, "W", 0),
       fmtSigned(d.delta_hr_bpm, "bpm", 0),
       fmtSigned(d.delta_ef_pct, "%", 1),
-      fmtSigned(d.delta_tcore_c, "Â°C", 2),
+      fmtSigned(d.delta_tcore_c, "\u00B0C", 2),
       fmtSigned(d.delta_alpha1, "", 2)
     ];
   });
-  populateResponsiveTable("table-drift", ["Serie", "Blocs", "Î”P", "Î”FC", "Î”EF %", "Î”Tcore", "Î”Î±â‚"], driftRows);
+  populateResponsiveTable("table-drift", ["Serie", "Blocs", "\u0394P", "\u0394FC", "\u0394EF %", "\u0394Tcore", "\u0394\u03B11"], driftRows);
 
   const workSegs = (session?.intervals || []).filter((s) => s.kind === "work");
   const workRows = workSegs.map((s) => [
@@ -1011,9 +1011,9 @@ function renderIntervalsAndDrifts(session) {
     fmt(s.cadence_rpm, "rpm", 0),
     fmt(s.ve_avg, "L/m", 1),
     fmt(s.alpha1_filt, "", 2),
-    fmt(s.tcore_end, "Â°C", 2)
+    fmt(s.tcore_end, "\u00B0C", 2)
   ]);
-  populateResponsiveTable("table-work", ["Bloc", "Duree", "P moy", "NP", "FC", "EF", "Cad", "Ve", "Î±â‚", "Tcore"], workRows);
+  populateResponsiveTable("table-work", ["Bloc", "Duree", "P moy", "NP", "FC", "EF", "Cad", "Ve", "\u03B11", "Tcore"], workRows);
 }
 
 function renderThresholds(session) {
@@ -1026,17 +1026,17 @@ function renderThresholds(session) {
 
   box.innerHTML = `
     <article class="sub-panel">
-      <h3>Normothermie (Tcore &lt; 37.8 Â°C)</h3>
+      <h3>Normothermie (Tcore &lt; 37.8 \u00B0C)</h3>
       <dl class="threshold-kv">
-        <dt>SVâ‚ (Î±â‚ 0.75)</dt><dd>${escapeHtml(fmt(normo.sv1?.watts, "W", 0))} Â· ${escapeHtml(fmt(normo.sv1?.hr, "bpm", 0))}</dd>
-        <dt>SVâ‚‚ (Î±â‚ 0.50)</dt><dd>${escapeHtml(fmt(normo.sv2?.watts, "W", 0))} Â· ${escapeHtml(fmt(normo.sv2?.hr, "bpm", 0))}</dd>
+        <dt>SV1 (\u03B11 0.75)</dt><dd>${escapeHtml(fmt(normo.sv1?.watts, "W", 0))} \u00B7 ${escapeHtml(fmt(normo.sv1?.hr, "bpm", 0))}</dd>
+        <dt>SV2 (\u03B11 0.50)</dt><dd>${escapeHtml(fmt(normo.sv2?.watts, "W", 0))} \u00B7 ${escapeHtml(fmt(normo.sv2?.hr, "bpm", 0))}</dd>
       </dl>
     </article>
     <article class="sub-panel">
-      <h3>Hyperthermie (Tcore &gt; 38.1 Â°C)</h3>
+      <h3>Hyperthermie (Tcore &gt; 38.1 \u00B0C)</h3>
       <dl class="threshold-kv">
-        <dt>SVâ‚ chaud</dt><dd>${escapeHtml(fmt(hyper.sv1?.watts, "W", 0))} Â· ${escapeHtml(fmt(hyper.sv1?.hr, "bpm", 0))}</dd>
-        <dt>SVâ‚‚ chaud</dt><dd>${escapeHtml(fmt(hyper.sv2?.watts, "W", 0))} Â· ${escapeHtml(fmt(hyper.sv2?.hr, "bpm", 0))}</dd>
+        <dt>SV1 chaud</dt><dd>${escapeHtml(fmt(hyper.sv1?.watts, "W", 0))} \u00B7 ${escapeHtml(fmt(hyper.sv1?.hr, "bpm", 0))}</dd>
+        <dt>SV2 chaud</dt><dd>${escapeHtml(fmt(hyper.sv2?.watts, "W", 0))} \u00B7 ${escapeHtml(fmt(hyper.sv2?.hr, "bpm", 0))}</dd>
         <dt>Biais thermique</dt><dd>${escapeHtml(fmtSigned(bias.sv1_w_diff, "W", 0))} / ${escapeHtml(fmtSigned(bias.sv2_w_diff, "W", 0))}</dd>
       </dl>
     </article>`;
@@ -1061,8 +1061,8 @@ function renderAnomalies(session) {
         <div class="cascade-step-head">
           <strong>Auto-Pause ${escapeHtml(ap.time_before_hms || "")} (gap ${escapeHtml(fmt(ap.gap_s, "s", 0))})</strong>
           <div class="cascade-badges">
-            <span class="badge badge-warn">Î”Tcore ${escapeHtml(fmtSigned(ap.delta_tcore, "Â°C", 2))}</span>
-            <span class="badge badge-info">Î”FC ${escapeHtml(fmtSigned(ap.delta_hr, "bpm", 0))}</span>
+            <span class="badge badge-warn">\u0394Tcore ${escapeHtml(fmtSigned(ap.delta_tcore, "\u00B0C", 2))}</span>
+            <span class="badge badge-info">\u0394FC ${escapeHtml(fmtSigned(ap.delta_hr, "bpm", 0))}</span>
           </div>
         </div>
       </article>`;
@@ -1074,10 +1074,10 @@ function renderAnomalies(session) {
       (tp) => `
       <article class="cascade-step">
         <div class="cascade-step-head">
-          <strong>Pic Tachypnee (${escapeHtml(tp.start_hms)} Â· ${escapeHtml(fmt(tp.duration_s, "s", 0))})</strong>
+          <strong>Pic Tachypnee (${escapeHtml(tp.start_hms)} \u00B7 ${escapeHtml(fmt(tp.duration_s, "s", 0))})</strong>
           <div class="cascade-badges">
             <span class="badge badge-crit">Rf ${escapeHtml(fmt(tp.rf_max, "/min", 0))}</span>
-            <span class="badge badge-warn">Tcore ${escapeHtml(fmt(tp.tcore_max, "Â°C", 2))}</span>
+            <span class="badge badge-warn">Tcore ${escapeHtml(fmt(tp.tcore_max, "\u00B0C", 2))}</span>
           </div>
         </div>
       </article>`
@@ -1112,7 +1112,7 @@ function buildContextualChipsFromBundle(bundle, session) {
   }
 
   if (g.tcore_max && g.tcore_max >= 38.0) {
-    chips.push(`Impact de Tcore ${g.tcore_max.toFixed(2)} Â°C sur mes seuils SV1/SV2`);
+    chips.push(`Impact de Tcore ${g.tcore_max.toFixed(2)} \u00B0C sur mes seuils SV1/SV2`);
   } else if (g.ve_per_100w_mean) {
     chips.push(`Rendement ventilatoire (Ve/100W = ${g.ve_per_100w_mean.toFixed(1)}) et cadence`);
   }
@@ -1186,7 +1186,7 @@ async function handleChatSubmit(questionText) {
   const logEl = $("chat-messages");
   const loadingDiv = document.createElement("div");
   loadingDiv.className = "chat-msg chat-msg-assistant";
-  loadingDiv.innerHTML = "<em>â³ Analyse Gemini en cours...</em>";
+  loadingDiv.innerHTML = "<em>\u23F3 Analyse Gemini en cours...</em>";
   if (logEl) {
     logEl.appendChild(loadingDiv);
     logEl.scrollTop = logEl.scrollHeight;
@@ -1246,7 +1246,7 @@ function renderAll() {
   renderTabs(bundle);
   const idx = getActiveSessionIndex(bundle);
   const session = bundle.sessions[idx];
-  $("report-meta-badge").textContent = `${bundle.date || ""} â€¢ ${session?.meta?.name || `Seance ${idx + 1}`}`;
+  $("report-meta-badge").textContent = `${bundle.date || ""} \u2022 ${session?.meta?.name || `Seance ${idx + 1}`}`;
 
   renderConsolidatedCard(bundle);
   renderVerdict(session, bundle);
