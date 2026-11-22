@@ -1,5 +1,5 @@
-﻿/**
- * PhysioPulse Telemetry — Contrôleur UI PWA 100 % Statique (ES Module)
+/**
+ * PhysioPulse Telemetry â€” Controleur UI PWA Mobile-First (ES Module)
  * Orchestre vault.js, intervals_client.js, physio_engine.js et gemini_client.js.
  */
 
@@ -19,11 +19,14 @@ import {
 import {
   buildInitialContextPayload,
   fetchAvailableGeminiModels,
+  pickBestAvailableModel,
   generateInitialSynthesis,
   sendChatMessage
 } from "./gemini_client.js";
 
-const REPORT_CACHE_KEY = "physiopulse_last_report_v3";
+const REPORT_CACHE_KEY = "physiopulse_last_report_v4";
+const MODELS_CACHE_KEY = "PHYSIOPULSE_CACHED_MODELS_V3";
+const AUTO_ANALYZE_KEY = "PHYSIOPULSE_AUTO_ANALYZE_STARTUP";
 const COLOR_SCHEME_KEY = "color-scheme";
 
 const state = {
@@ -36,9 +39,6 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-/* ==========================================================================
-   Utilitaires d'échappement, formatage & rendu Markdown sûr
-   ========================================================================== */
 function safeGet(key) {
   try {
     return window.localStorage.getItem(key);
@@ -51,7 +51,7 @@ function safeSet(key, val) {
   try {
     window.localStorage.setItem(key, val);
   } catch {
-    /* Quota / navigation privée */
+    /* Quota / navigation privee */
   }
 }
 
@@ -59,7 +59,7 @@ function safeRemove(key) {
   try {
     window.localStorage.removeItem(key);
   } catch {
-    /* Ignoré */
+    /* Ignore */
   }
 }
 
@@ -74,7 +74,7 @@ function escapeHtml(value) {
 }
 
 function fmt(val, suffix = "", digits = null) {
-  if (val === null || val === undefined || val === "" || Number.isNaN(val)) return "—";
+  if (val === null || val === undefined || val === "" || Number.isNaN(val)) return "â€”";
   if (typeof val === "number") {
     const out = digits !== null ? val.toFixed(digits) : Number.isInteger(val) ? String(val) : val.toFixed(2);
     return suffix ? `${out} ${suffix}`.trim() : out;
@@ -83,7 +83,7 @@ function fmt(val, suffix = "", digits = null) {
 }
 
 function fmtSigned(val, suffix = "", digits = 2) {
-  if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
+  if (val === null || val === undefined || Number.isNaN(Number(val))) return "â€”";
   const num = Number(val);
   const sign = num > 0 ? "+" : "";
   return `${sign}${num.toFixed(digits)}${suffix ? ` ${suffix}` : ""}`;
@@ -105,21 +105,12 @@ function renderSafeMarkdown(rawText) {
   let inTable = false;
 
   const closeLists = () => {
-    if (inUl) {
-      out.push("</ul>");
-      inUl = false;
-    }
-    if (inOl) {
-      out.push("</ol>");
-      inOl = false;
-    }
+    if (inUl) { out.push("</ul>"); inUl = false; }
+    if (inOl) { out.push("</ol>"); inOl = false; }
   };
 
   const closeTable = () => {
-    if (inTable) {
-      out.push("</tbody></table>");
-      inTable = false;
-    }
+    if (inTable) { out.push("</tbody></table>"); inTable = false; }
   };
 
   for (const line of lines) {
@@ -134,7 +125,6 @@ function renderSafeMarkdown(rawText) {
       closeLists();
       const cells = trimmed.slice(1, -1).split("|").map((c) => c.trim());
       if (cells.every((c) => /^:?-{2,}:?$/.test(c))) continue;
-
       if (!inTable) {
         out.push("<table><thead><tr>");
         for (const c of cells) out.push(`<th>${applyInlineMarkdown(c)}</th>`);
@@ -156,30 +146,18 @@ function renderSafeMarkdown(rawText) {
       continue;
     }
 
-    const ulMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+    const ulMatch = trimmed.match(/^[-*â€¢]\s+(.+)$/);
     if (ulMatch) {
-      if (inOl) {
-        out.push("</ol>");
-        inOl = false;
-      }
-      if (!inUl) {
-        out.push("<ul>");
-        inUl = true;
-      }
+      if (inOl) { out.push("</ol>"); inOl = false; }
+      if (!inUl) { out.push("<ul>"); inUl = true; }
       out.push(`<li>${applyInlineMarkdown(ulMatch[1])}</li>`);
       continue;
     }
 
     const olMatch = trimmed.match(/^\d+[.)]\s+(.+)$/);
     if (olMatch) {
-      if (inUl) {
-        out.push("</ul>");
-        inUl = false;
-      }
-      if (!inOl) {
-        out.push("<ol>");
-        inOl = true;
-      }
+      if (inUl) { out.push("</ul>"); inUl = false; }
+      if (!inOl) { out.push("<ol>"); inOl = true; }
       out.push(`<li>${applyInlineMarkdown(olMatch[1])}</li>`);
       continue;
     }
@@ -194,7 +172,7 @@ function renderSafeMarkdown(rawText) {
 }
 
 /* ==========================================================================
-   1. Thème Clair/Sombre (2 états) & Statut Réseau / SW
+   1. Theme, Reseau & Service Worker
    ========================================================================== */
 function initThemeToggle() {
   const meta = document.querySelector('meta[name="color-scheme"]');
@@ -214,7 +192,6 @@ function initThemeToggle() {
     const system = getSystemTheme();
     const rendered = stored === "light" || stored === "dark" ? stored : system;
     const target = rendered === "dark" ? "light" : "dark";
-
     if (target !== system) safeSet(COLOR_SCHEME_KEY, target);
     else safeRemove(COLOR_SCHEME_KEY);
     applyMetaFromStorage();
@@ -245,8 +222,25 @@ function initNetworkAndSw() {
 }
 
 /* ==========================================================================
-   2. UI Coffre-Fort Centralisé (vault.js)
+   2. Coffre-Fort & Auto-Sync Dynamique des Modeles Gemini
    ========================================================================== */
+function renderModelOptions(selectEl, modelsList, selectedId) {
+  if (!selectEl || !Array.isArray(modelsList) || modelsList.length === 0) return;
+  selectEl.innerHTML = "";
+  for (const m of modelsList) {
+    const id = String(typeof m === "string" ? m : m?.id || "").replace(/^models\//, "");
+    if (!id) continue;
+    const label = typeof m === "string" ? id : m.displayName && m.displayName !== id ? `${id} â€” ${m.displayName}` : id;
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = label;
+    selectEl.appendChild(opt);
+  }
+  if (selectedId && Array.from(selectEl.options).some((o) => o.value === selectedId)) {
+    selectEl.value = selectedId;
+  }
+}
+
 function syncVaultFormInputs() {
   const v = state.vault;
   if ($("vault-intervals-id")) $("vault-intervals-id").value = v.INTERVALS_ATHLETE_ID || "";
@@ -255,12 +249,12 @@ function syncVaultFormInputs() {
 
   const modelSel = $("vault-llm-model");
   if (modelSel) {
-    const modelVal = v.LLM_MODEL || "gemini-3.5-flash";
+    const modelVal = v.LLM_MODEL || "gemini-4-hydrogen";
     if (!Array.from(modelSel.options).some((opt) => opt.value === modelVal)) {
       const opt = document.createElement("option");
       opt.value = modelVal;
       opt.textContent = modelVal;
-      modelSel.appendChild(opt);
+      modelSel.prepend(opt);
     }
     modelSel.value = modelVal;
   }
@@ -279,7 +273,7 @@ function updateVaultIndicators() {
   if (badgeInt && textInt) {
     badgeInt.classList.toggle("is-ok", intervalsOk);
     badgeInt.classList.toggle("is-missing", !intervalsOk);
-    textInt.textContent = intervalsOk ? "Intervals OK" : "Intervals Manquant";
+    textInt.textContent = intervalsOk ? "Intervals OK" : "Intervals";
   }
 
   const badgeGem = $("vault-badge-gemini");
@@ -287,7 +281,7 @@ function updateVaultIndicators() {
   if (badgeGem && textGem) {
     badgeGem.classList.toggle("is-ok", geminiOk);
     badgeGem.classList.toggle("is-missing", !geminiOk);
-    textGem.textContent = geminiOk ? "Gemini OK" : "Gemini Manquant";
+    textGem.textContent = geminiOk ? "Gemini OK" : "Gemini";
   }
 }
 
@@ -312,6 +306,43 @@ function setVaultDrawerOpen(open, alertMsg = "", isError = false) {
   }
 
   if (open) drawer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function resolveAndSyncModelsAtStartup() {
+  const selectEl = $("vault-llm-model");
+  state.vault = loadVault();
+  const apiKey = (state.vault.GEMINI_API_KEY || "").trim();
+
+  let cachedModels = [];
+  try {
+    cachedModels = JSON.parse(safeGet(MODELS_CACHE_KEY) || "[]");
+  } catch {
+    cachedModels = [];
+  }
+
+  let chosenModel = pickBestAvailableModel(cachedModels, state.vault.LLM_MODEL);
+  if (cachedModels.length > 0 && selectEl) {
+    renderModelOptions(selectEl, cachedModels, chosenModel);
+  }
+
+  if (apiKey && navigator.onLine) {
+    try {
+      const liveModels = await fetchAvailableGeminiModels(apiKey);
+      if (liveModels.length > 0) {
+        safeSet(MODELS_CACHE_KEY, JSON.stringify(liveModels));
+        chosenModel = pickBestAvailableModel(liveModels, state.vault.LLM_MODEL);
+        if (selectEl) renderModelOptions(selectEl, liveModels, chosenModel);
+      }
+    } catch {
+      /* Conserve le modele en cache si hors-ligne ou erreur transitoire */
+    }
+  }
+
+  if (chosenModel && chosenModel !== state.vault.LLM_MODEL) {
+    state.vault = saveVault({ LLM_MODEL: chosenModel });
+  }
+  syncVaultFormInputs();
+  return state.vault.LLM_MODEL;
 }
 
 function initVaultUI() {
@@ -349,7 +380,7 @@ function initVaultUI() {
     });
     syncVaultFormInputs();
     updateVaultIndicators();
-    setVaultDrawerOpen(true, "Coffre-fort enregistré (GLOBAL_ATHLETE_VAULT_V1 + clés plates).", false);
+    setVaultDrawerOpen(true, `Coffre enregistre (modele actif : ${state.vault.LLM_MODEL}).`, false);
   });
 
   $("btn-vault-export")?.addEventListener("click", () => {
@@ -373,7 +404,7 @@ function initVaultUI() {
       state.vault = importVaultJson(await file.text());
       syncVaultFormInputs();
       updateVaultIndicators();
-      setVaultDrawerOpen(true, `Coffre JSON importé (${file.name}).`, false);
+      setVaultDrawerOpen(true, `Coffre JSON importe (${file.name}).`, false);
     } catch (err) {
       setVaultDrawerOpen(true, `Import JSON invalide : ${err.message}`, true);
     } finally {
@@ -396,88 +427,61 @@ function initVaultUI() {
     const btn = $("refresh-models-btn");
     const modelSel = $("vault-llm-model");
     if (!key || !modelSel) {
-      setVaultDrawerOpen(true, "Saisissez GEMINI_API_KEY pour charger les modèles de votre compte.", true);
+      setVaultDrawerOpen(true, "Renseignez GEMINI_API_KEY pour actualiser les modeles.", true);
       return;
     }
     if (btn) btn.disabled = true;
     try {
       const models = await fetchAvailableGeminiModels(key);
       if (models.length === 0) {
-        setVaultDrawerOpen(true, "Aucun modèle compatible generateContent trouvé.", true);
+        setVaultDrawerOpen(true, "Aucun modele compatible generateContent trouve.", true);
         return;
       }
-      const currentVal = modelSel.value || state.vault.LLM_MODEL || "gemini-3.5-flash";
-      modelSel.innerHTML = "";
-      for (const m of models) {
-        const opt = document.createElement("option");
-        opt.value = m.id;
-        opt.textContent = m.displayName && m.displayName !== m.id ? `${m.id} — ${m.displayName}` : m.id;
-        modelSel.appendChild(opt);
-      }
-      if (Array.from(modelSel.options).some((o) => o.value === currentVal)) {
-        modelSel.value = currentVal;
-      }
-      setVaultDrawerOpen(true, `${models.length} modèles Gemini chargés depuis votre compte.`, false);
+      safeSet(MODELS_CACHE_KEY, JSON.stringify(models));
+      const chosen = pickBestAvailableModel(models, modelSel.value || state.vault.LLM_MODEL);
+      renderModelOptions(modelSel, models, chosen);
+      state.vault = saveVault({ LLM_MODEL: chosen });
+      setVaultDrawerOpen(true, `${models.length} modeles charges (selection : ${chosen}).`, false);
     } catch (err) {
-      setVaultDrawerOpen(true, `Impossible de lister les modèles : ${err.message}`, true);
+      setVaultDrawerOpen(true, `Erreur modeles Gemini : ${err.message}`, true);
     } finally {
       if (btn) btn.disabled = false;
     }
   });
 
-  window.addEventListener("storage", () => {
-    state.vault = loadVault();
-    syncVaultFormInputs();
-    updateVaultIndicators();
-  });
+  const autoChk = $("auto-analyze-startup");
+  if (autoChk) {
+    autoChk.checked = safeGet(AUTO_ANALYZE_KEY) === "1";
+    autoChk.addEventListener("change", () => {
+      safeSet(AUTO_ANALYZE_KEY, autoChk.checked ? "1" : "0");
+    });
+  }
 }
 
 /* ==========================================================================
-   3. Accordéon & Tableaux Responsives
+   3. Accordeons & Tableaux Responsives
    ========================================================================== */
 function initAccordion() {
   const accordion = $("tech-accordion");
   const toggleAllBtn = $("toggle-all-btn");
   if (!accordion || !toggleAllBtn) return;
 
-  const syncButtonState = () => {
+  const syncState = () => {
     const items = accordion.querySelectorAll(":scope > details");
-    const allOpen = items.length > 0 && Array.prototype.every.call(items, (d) => d.open);
+    const allOpen = items.length > 0 && Array.from(items).every((d) => d.open);
     toggleAllBtn.setAttribute("aria-expanded", String(allOpen));
   };
 
-  const toggleAll = (sourceBtn) => {
-    const expand = sourceBtn.getAttribute("aria-expanded") !== "true";
-    for (const details of accordion.querySelectorAll(":scope > details")) {
-      details.open = expand;
+  toggleAllBtn.addEventListener("click", () => {
+    const expand = toggleAllBtn.getAttribute("aria-expanded") !== "true";
+    for (const d of accordion.querySelectorAll(":scope > details")) {
+      d.open = expand;
     }
-    syncButtonState();
-  };
+    syncState();
+  });
 
-  document.addEventListener(
-    "command",
-    (event) => {
-      if (event.command !== "--toggle-all" || event.target !== accordion) return;
-      toggleAll(event.source || toggleAllBtn);
-    },
-    { capture: true }
-  );
-
-  if (!Object.hasOwn(HTMLButtonElement.prototype, "commandForElement")) {
-    toggleAllBtn.addEventListener("click", () => toggleAll(toggleAllBtn));
-  }
-
-  document.addEventListener(
-    "toggle",
-    (event) => {
-      if (event.target instanceof HTMLDetailsElement && event.target.matches("#tech-accordion > details")) {
-        syncButtonState();
-      }
-    },
-    { capture: true }
-  );
-
-  syncButtonState();
+  accordion.addEventListener("toggle", syncState, true);
+  syncState();
 }
 
 function initTableControls() {
@@ -493,7 +497,7 @@ function initTableControls() {
 }
 
 /* ==========================================================================
-   4. Progression & Pipelines (1-Click Intervals.icu + Gemini / CSV local)
+   4. Pipelines 1-Click & CSV
    ========================================================================== */
 function setPipelineStep(stepNumber, stepState) {
   const progress = $("pipeline-progress");
@@ -527,11 +531,11 @@ function buildFallbackSeedHistory(dailyBundle) {
   return [
     {
       role: "user",
-      parts: [{ text: `Contexte mathématique 1 Hz de la journée :\n${JSON.stringify(payload)}` }]
-    }, { role: "model", parts: [{ text: "Contexte physiologique 1 Hz enregistré." }] },
+      parts: [{ text: `Donnees essentielles de la journee :\n${JSON.stringify(payload)}` }]
+    },
     {
       role: "model",
-      parts: [{ text: "Contexte JSON mathématique chargé." }]
+      parts: [{ text: "Contexte physiologique charge. Pret pour vos questions." }]
     }
   ];
 }
@@ -542,7 +546,7 @@ async function finalizeBundleAndGemini(rawDay, vault) {
     analyzeActivity(act, { cp: vault.CP_WATTS, wPrime: vault.W_PRIME_J })
   );
   if (sessionReports.length === 0) {
-    throw new Error("Aucune séance exploitable trouvée pour cette journée.");
+    throw new Error("Aucune seance exploitable trouvee pour cette journee.");
   }
   const daySummary = buildDailySummary(rawDay.date, sessionReports, rawDay.wellness);
   const dailyBundle = {
@@ -556,14 +560,21 @@ async function finalizeBundleAndGemini(rawDay, vault) {
   setPipelineStep(3, "active");
   let synthesis = null;
   let geminiError = "";
+  let usedModel = vault.LLM_MODEL || "gemini-4-hydrogen";
+
   if (vault.GEMINI_API_KEY) {
     try {
       const gemRes = await generateInitialSynthesis({
         dailyBundle,
         geminiApiKey: vault.GEMINI_API_KEY,
-        model: vault.LLM_MODEL
+        model: usedModel
       });
       synthesis = gemRes.synthesis;
+      usedModel = gemRes.usedModel || usedModel;
+      if (usedModel !== state.vault.LLM_MODEL) {
+        state.vault = saveVault({ LLM_MODEL: usedModel });
+        syncVaultFormInputs();
+      }
       state.conversationHistory = gemRes.conversationHistory;
       setPipelineStep(3, "done");
     } catch (err) {
@@ -572,7 +583,7 @@ async function finalizeBundleAndGemini(rawDay, vault) {
       setPipelineStep(3, "error");
     }
   } else {
-    geminiError = "GEMINI_API_KEY absente : synthèse locale affichée.";
+    geminiError = "GEMINI_API_KEY absente : synthese locale affichee.";
     state.conversationHistory = buildFallbackSeedHistory(dailyBundle);
     setPipelineStep(3, "error");
   }
@@ -580,7 +591,8 @@ async function finalizeBundleAndGemini(rawDay, vault) {
   state.bundle = {
     ...dailyBundle,
     gemini_synthesis: synthesis,
-    gemini_error: geminiError
+    gemini_error: geminiError,
+    gemini_model_used: usedModel
   };
   state.activeTab = sessionReports.length > 1 ? "summary" : "session-0";
   safeSet(REPORT_CACHE_KEY, JSON.stringify(state.bundle));
@@ -598,11 +610,7 @@ async function runFullPipeline() {
   if (!v.GEMINI_API_KEY) missing.push("GEMINI_API_KEY");
 
   if (missing.length > 0) {
-    setVaultDrawerOpen(
-      true,
-      `Clés requises avant l'analyse 1-Click : renseignez ${missing.join(", ")} puis cliquez sur « Enregistrer dans le coffre-fort ».`,
-      true
-    );
+    setVaultDrawerOpen(true, `Cles requises : ${missing.join(", ")}.`, true);
     return;
   }
 
@@ -622,16 +630,15 @@ async function runFullPipeline() {
     if (!rawDay.activities || rawDay.activities.length === 0) {
       throw new Error(
         targetDate
-          ? `Aucune activité trouvée sur Intervals.icu pour le ${targetDate}.`
-          : "Aucune activité active trouvée sur les 30 derniers jours."
+          ? `Aucune activite sur Intervals.icu pour le ${targetDate}.`
+          : "Aucune activite trouvee sur les 30 derniers jours."
       );
     }
     setPipelineStep(1, "done");
-
     await finalizeBundleAndGemini(rawDay, v);
   } catch (err) {
     setPipelineStep(1, "error");
-    showStatusAlert(err.message || "Échec du pipeline 1-Click.", true);
+    showStatusAlert(err.message || "Echec du pipeline 1-Click.", true);
   } finally {
     state.busy = false;
     $("btn-analyze-1click").disabled = false;
@@ -641,8 +648,6 @@ async function runFullPipeline() {
 async function runLocalCsvPipeline(file) {
   if (state.busy) return;
   state.vault = loadVault();
-  const v = state.vault;
-
   state.busy = true;
   showStatusAlert("");
   resetPipeline(true);
@@ -652,10 +657,7 @@ async function runLocalCsvPipeline(file) {
     const csvText = await file.text();
     const rawAct = parseCsvTextToActivity(csvText, file.name);
     const today = new Date().toISOString().slice(0, 10);
-    await finalizeBundleAndGemini(
-      { date: today, wellness: null, activities: [rawAct] },
-      v
-    );
+    await finalizeBundleAndGemini({ date: today, wellness: null, activities: [rawAct] }, state.vault);
     setVaultDrawerOpen(false);
   } catch (err) {
     setPipelineStep(2, "error");
@@ -666,7 +668,7 @@ async function runLocalCsvPipeline(file) {
 }
 
 /* ==========================================================================
-   5. Rendu Ordre 1 : Verdict Gemini/Local, Wellness, 6 KPIs
+   5. Rendu Bilan, Wellness, 6 KPIs & Accordeons Essentiels
    ========================================================================== */
 function getActiveSessionIndex(bundle) {
   const sessions = bundle?.sessions || [];
@@ -692,10 +694,10 @@ function renderTabs(bundle) {
 
   bar.hidden = false;
   const tabs = [
-    { id: "summary", label: `Synthèse Journée (${sessions.length})` },
+    { id: "summary", label: `Journee (${sessions.length})` },
     ...sessions.map((s, idx) => ({
       id: `session-${idx}`,
-      label: `Séance ${idx + 1} · ${s.meta?.name || `Activité ${idx + 1}`}`
+      label: `S${idx + 1} Â· ${s.meta?.name || `Activite ${idx + 1}`}`
     }))
   ];
 
@@ -725,15 +727,15 @@ function renderConsolidatedCard(bundle) {
   }
 
   card.hidden = false;
-  $("day-sessions-count").textContent = `${sessions.length} séances`;
+  $("day-sessions-count").textContent = `${sessions.length} seances`;
 
   const stats = [
-    ["Durée totale", formatSecondsHms(ds.moving_time_s)],
+    ["Duree", formatSecondsHms(ds.moving_time_s)],
     ["Distance", fmt(ds.distance_km, "km", 1)],
-    ["Dénivelé +", fmt(ds.elevation_gain_m, "m", 0)],
-    ["TSS cumulé", fmt(ds.tss, "", 0)],
-    ["NP pondérée", fmt(ds.np_weighted_w, "W", 0)],
-    ["Tcore max jour", fmt(ds.tcore_max_day, "°C", 2)]
+    ["D+", fmt(ds.elevation_gain_m, "m", 0)],
+    ["TSS", fmt(ds.tss, "", 0)],
+    ["NP pond.", fmt(ds.np_weighted_w, "W", 0)],
+    ["Tcore max", fmt(ds.tcore_max_day, "Â°C", 2)]
   ];
 
   $("day-consolidated-metrics").innerHTML = stats
@@ -744,7 +746,7 @@ function renderConsolidatedCard(bundle) {
   if (ds.inter_session_drift) {
     const d = ds.inter_session_drift;
     evo.hidden = false;
-    evo.textContent = `${d.from_session} → ${d.to_session} : Δα₁ ${fmtSigned(d.delta_alpha1, "", 2)} | ΔEF ${fmtSigned(d.delta_ef_pct ?? d.delta_ef_np_pct, "%", 1)} | ΔTcore max ${fmtSigned(d.delta_tcore_max_c, "°C", 2)}`;
+    evo.textContent = `${d.from_session} -> ${d.to_session} : Î”Î±â‚ ${fmtSigned(d.delta_alpha1, "", 2)} | Î”EF ${fmtSigned(d.delta_ef_pct ?? d.delta_ef_np_pct, "%", 1)} | Î”Tcore ${fmtSigned(d.delta_tcore_max_c, "Â°C", 2)}`;
   } else {
     evo.hidden = true;
   }
@@ -752,34 +754,28 @@ function renderConsolidatedCard(bundle) {
 
 function buildLocalMetricsFallback(session) {
   const g = session?.global || {};
-  const rPart = session?.correlations?.partial?.tcore_alpha1_given_p60s?.r_partial ?? null;
-  const th = session?.thresholds || {};
-  const incCount = (session?.incidents?.auto_pause_incidents?.length || 0) + (session?.incidents?.tachypnea_peaks?.length || 0);
-
   const strengths = [];
   const breaking = [];
-  if (g.normalized_power_w) strengths.push(`NP ${fmt(g.normalized_power_w, "W", 0)} (IF ${fmt(g.intensity_factor, "", 2)}), travail ${fmt(g.work_kj, "kJ", 0)}.`);
-  if (g.aerobic_decoupling_pa_hr_pct !== null && g.aerobic_decoupling_pa_hr_pct !== undefined) {
-    if (g.aerobic_decoupling_pa_hr_pct <= 5) strengths.push(`Couplage cardiovasculaire Pa:Hr stable (${g.aerobic_decoupling_pa_hr_pct.toFixed(1)} %).`);
-    else breaking.push(`Dérive Pa:Hr marquée (${g.aerobic_decoupling_pa_hr_pct.toFixed(1)} %).`);
+
+  if (g.normalized_power_w) strengths.push(`NP ${fmt(g.normalized_power_w, "W", 0)} (IF ${fmt(g.intensity_factor, "", 2)}), ${fmt(g.work_kj, "kJ", 0)}.`);
+  if (g.aerobic_decoupling_pa_hr_pct != null) {
+    if (g.aerobic_decoupling_pa_hr_pct <= 5) strengths.push(`Decouplage Pa:Hr maitrise (${g.aerobic_decoupling_pa_hr_pct.toFixed(1)} %).`);
+    else breaking.push(`Derive cardiovasculaire Pa:Hr marquee (${g.aerobic_decoupling_pa_hr_pct.toFixed(1)} %).`);
   }
-  if ((g.tcore_max ?? 0) >= 38.1) breaking.push(`Contrainte thermique élevée : Tcore max ${fmt(g.tcore_max, "°C", 2)} (HSI max ${fmt(g.hsi_max, "", 1)}).`);
-  if (incCount > 0) breaking.push(`${incCount} incident(s) / pic(s) de tachypnée détecté(s) sur les flux 1 Hz.`);
-  if (strengths.length === 0) strengths.push("Télémétrie 1 Hz analysée localement sans anomalie critique.");
-  if (breaking.length === 0) breaking.push("Aucune rupture majeure détectée par les seuils locaux.");
+  if ((g.tcore_max ?? 0) >= 38.1) breaking.push(`Contrainte thermique : Tcore max ${fmt(g.tcore_max, "Â°C", 2)} (HSI max ${fmt(g.hsi_max, "", 1)}).`);
+  if (strengths.length === 0) strengths.push("Donnees 1 Hz calculees localement sans anomalie critique.");
+  if (breaking.length === 0) breaking.push("Aucune rupture majeure detectee sur les seuils locaux.");
 
   return {
-    verdict: `Résumé mathématique local — ${session?.meta?.name || "Séance 1 Hz"}`,
-    daily_synthesis: `NP ${fmt(g.normalized_power_w, "W", 0)} • FC moy ${fmt(g.avg_hr_bpm, "bpm", 0)} • Ve moy ${fmt(g.ve_mean, "L/min", 1)} • Tcore max ${fmt(g.tcore_max, "°C", 2)} • r(Tcore, α₁ | P60s) = ${fmt(rPart, "", 3)}.`,
+    verdict: `Synthese locale â€” ${session?.meta?.name || "Seance"}`,
+    daily_synthesis: `NP ${fmt(g.normalized_power_w, "W", 0)} â€¢ FC moy ${fmt(g.avg_hr_bpm, "bpm", 0)} â€¢ Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)} â€¢ Ve ${fmt(g.ve_mean, "L/min", 1)} â€¢ Tcore max ${fmt(g.tcore_max, "Â°C", 2)}.`,
     strengths,
     breaking_points: breaking,
     priority_axes: [
-      { title: "Thermorégulation", metric_basis: `Tcore max ${fmt(g.tcore_max, "°C", 2)}`, action: "Refroidissement actif et hydratation 700-900 mg/L Na." },
-      { title: "Dérive Cardiovasculaire", metric_basis: `Pa:Hr ${fmt(g.aerobic_decoupling_pa_hr_pct, "%", 1)}`, action: "Contrôler l'intensité sous SV₁ lors des transitions chaudes." },
-      { title: "Ventilation TymeWear", metric_basis: `Ve moy ${fmt(g.ve_mean, "L/min", 1)}`, action: "Maintenir le volume courant Vt et limiter Rf > 55/min." },
-      { title: "Seuils Thermiques SV₁/SV₂", metric_basis: `Biais thermique moyen ${fmtSigned(th?.thermal_bias_w?.mean_bias_w, "W", 0)}`, action: "Ajuster la puissance cible à la baisse au-delà de 38.1 °C." }
+      { title: "Charge & Recuperation", metric_basis: `TSS ${fmt(g.tss, "", 0)} / Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)}`, action: "Ajuster le volume/intensite de demain selon HRV/Handgrip/PVT du matin." },
+      { title: "Thermoregulation", metric_basis: `Tcore max ${fmt(g.tcore_max, "Â°C", 2)}`, action: "Refroidissement actif et sodium 700-900 mg/L si chaleur." }
     ],
-    technical_notes: `Artéfacts ECG moyens : ${fmt(g.artifacts_mean_pct, "%", 2)} (validité DFA α₁ : ${fmt(g.alpha1_valid_pct, "%", 1)}).`
+    technical_notes: `Artefacts ECG : ${fmt(g.artifacts_mean_pct, "%", 1)} (validite DFA Î±â‚ : ${fmt(g.alpha1_valid_pct, "%", 1)}).`
   };
 }
 
@@ -787,12 +783,11 @@ function renderVerdict(session, bundle) {
   const banner = $("executive-verdict");
   const errorBox = $("gemini-error-box");
   const gem = bundle?.gemini_synthesis;
-  const fallback = buildLocalMetricsFallback(session);
-  const v = gem || fallback;
+  const v = gem || buildLocalMetricsFallback(session);
 
   if (bundle?.gemini_error) {
     errorBox.hidden = false;
-    errorBox.textContent = `Erreur Gemini : ${bundle.gemini_error} — Synthèse calculée localement affichée ci-dessous.`;
+    errorBox.textContent = `Gemini indisponible (${bundle.gemini_error}) â€” Resume mathematique local affiche.`;
   } else {
     errorBox.hidden = true;
     errorBox.textContent = "";
@@ -801,34 +796,34 @@ function renderVerdict(session, bundle) {
   const g = session?.global || {};
   const tone = (g.tcore_max ?? 0) > 38.5 || (g.aerobic_decoupling_pa_hr_pct ?? 0) > 8 ? "warn" : "ok";
   banner.className = `verdict-banner is-${tone}`;
+
   const badge = $("verdict-badge");
   badge.className = `badge badge-${gem ? "info" : tone}`;
-  badge.textContent = gem ? "SYNTHÈSE GEMINI" : "RÉSUMÉ LOCAL";
+  badge.textContent = gem ? `GEMINI (${bundle.gemini_model_used || state.vault.LLM_MODEL})` : "RESUME LOCAL";
 
-  $("verdict-title").textContent = v.verdict || session?.meta?.name || "Verdict Exécutif";
-  $("verdict-summary").textContent = v.daily_synthesis || "—";
-  $("verdict-root-cause").textContent = "";
+  $("verdict-title").textContent = v.verdict || session?.meta?.name || "Verdict";
+  $("verdict-summary").textContent = v.daily_synthesis || "â€”";
 
   const strengths = Array.isArray(v.strengths) ? v.strengths : [];
   const breaks = Array.isArray(v.breaking_points) ? v.breaking_points : [];
   $("strengths-list").innerHTML = strengths.length
     ? strengths.map((s) => `<li>${escapeHtml(s)}</li>`).join("")
-    : "<li>Aucun point fort rapporté.</li>";
+    : "<li>Aucun point fort specifique.</li>";
   $("breaking-points-list").innerHTML = breaks.length
     ? breaks.map((s) => `<li>${escapeHtml(s)}</li>`).join("")
-    : "<li>Aucun point de rupture rapporté.</li>";
+    : "<li>Aucun point de rupture detecte.</li>";
 
   const axes = Array.isArray(v.priority_axes) ? v.priority_axes.slice(0, 4) : [];
   $("priorities-list").innerHTML = axes.length
     ? axes
         .map((ax) => {
-          const title = ax?.title || "Axe prioritaire";
+          const title = ax?.title || "Axe";
           const action = ax?.action || "";
           const basis = ax?.metric_basis ? `<span class="priority-target">Base : ${escapeHtml(ax.metric_basis)}</span>` : "";
-          return `<li><strong>${escapeHtml(title)}</strong>${action ? ` — ${escapeHtml(action)}` : ""}${basis}</li>`;
+          return `<li><strong>${escapeHtml(title)}</strong>${action ? ` â€” ${escapeHtml(action)}` : ""}${basis}</li>`;
         })
         .join("")
-    : "<li>Aucun axe prioritaire disponible.</li>";
+    : "<li>Aucun axe prioritaire.</li>";
 
   const notesEl = $("verdict-tech-notes");
   if (v.technical_notes) {
@@ -853,17 +848,17 @@ function renderWellness(bundle) {
     raw.HandgripDroit != null || raw.HandgripGauche != null
       ? `${fmt(raw.HandgripDroit, "", 1)} / ${fmt(raw.HandgripGauche, "kg", 1)}`
       : null;
-  const pvt = raw.PvtMedian != null ? `${fmt(raw.PvtMedian, "ms", 0)} (${fmt(raw.PvtLapses, "lapses", 0)})` : null;
+  const pvt = raw.PvtMedian != null ? `${fmt(raw.PvtMedian, "ms", 0)} (${fmt(raw.PvtLapses, "l", 0)})` : null;
 
   const items = [
     ["HRV RMSSD", fmt(w.hrv_rmssd, "ms", 0)],
     ["FC repos", fmt(w.resting_hr, "bpm", 0)],
-    ["CTL / ATL / TSB", `${fmt(w.ctl, "", 0)} / ${fmt(w.atl, "", 0)} / ${fmt(w.tsb, "", 0)}`],
+    ["CTL/ATL/TSB", `${fmt(w.ctl, "", 0)} / ${fmt(w.atl, "", 0)} / ${fmt(w.tsb, "", 0)}`],
     ["Sommeil", w.sleep_secs ? formatSecondsHms(w.sleep_secs) : fmt(w.sleep_score, "/100", 0)],
     ["Readiness", fmt(w.readiness, "/100", 0)],
-    ["Handgrip (D/G)", handgrip],
+    ["Handgrip D/G", handgrip],
     ["PVT", pvt]
-  ].filter(([, val]) => val && val !== "—" && val !== "— / — / —");
+  ].filter(([, val]) => val && val !== "â€”" && val !== "â€” / â€” / â€”");
 
   if (items.length === 0) {
     card.hidden = true;
@@ -881,50 +876,49 @@ function renderKpiGrid(session) {
   const grid = $("kpi-grid");
   if (!grid || !session) return;
   const g = session.global || {};
-  const rPart = session.correlations?.partial?.tcore_alpha1_given_p60s?.r_partial ?? null;
 
   const cards = [
     {
-      label: "1. Volume & D+",
+      label: "Volume & Charge",
       badge: session.meta?.type || "Ride",
       tone: "info",
-      main: `${formatSecondsHms(g.moving_time_s)} · ${fmt(g.distance_km, "km", 1)}`,
-      sub: `D+ ${fmt(g.elevation_gain_m, "m", 0)} • TSS ${fmt(g.tss, "", 0)} • ${fmt(g.work_kj, "kJ", 0)}`
+      main: `${formatSecondsHms(g.moving_time_s)} Â· ${fmt(g.distance_km, "km", 1)}`,
+      sub: `D+ ${fmt(g.elevation_gain_m, "m", 0)} â€¢ TSS ${fmt(g.tss, "", 0)} â€¢ ${fmt(g.work_kj, "kJ", 0)}`
     },
     {
-      label: "2. Puissance / NP / W'bal",
+      label: "Puissance & W'bal",
       badge: g.intensity_factor ? `IF ${g.intensity_factor.toFixed(2)}` : "W'",
       tone: (g.w_prime_min_pct ?? 100) < 25 ? "warn" : "ok",
       main: `${fmt(g.avg_power_w, "W", 0)} / NP ${fmt(g.normalized_power_w, "W", 0)}`,
-      sub: `W'bal min : ${fmt(g.w_prime_min_pct, "%", 1)} (${fmt(g.w_prime_bal_min_j, "J", 0)})`
+      sub: `W'bal min : ${fmt(g.w_prime_min_pct, "%", 1)} â€¢ Cad ${fmt(g.avg_cadence_rpm, "rpm", 0)}`
     },
     {
-      label: "3. Cardiaque ECG / Pa:Hr",
+      label: "Cardiaque ECG & Pa:Hr",
       badge: g.aerobic_decoupling_pa_hr_pct != null ? `Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)}` : "ECG",
       tone: (g.aerobic_decoupling_pa_hr_pct ?? 0) > 6 ? "warn" : "ok",
       main: `${fmt(g.avg_hr_bpm, "bpm", 0)} (max ${fmt(g.max_hr_bpm, "", 0)})`,
-      sub: `EF(NP) ${fmt(g.ef_np, "W/bpm", 2)} • Cad ${fmt(g.avg_cadence_rpm, "rpm", 0)}`
+      sub: `EF(NP) ${fmt(g.ef_np, "W/bpm", 2)}`
     },
     {
-      label: "4. Ventilation TymeWear",
+      label: "Ventilation TymeWear",
       badge: "Ve / Rf / Vt",
       tone: "info",
       main: `Ve ${fmt(g.ve_mean, "L/min", 1)} (max ${fmt(g.ve_max, "", 0)})`,
-      sub: `Rf ${fmt(g.rf_mean, "/min", 1)} • Vt ${fmt(g.vt_mean_l, "L", 2)} • Ve/100W ${fmt(g.ve_per_100w_mean, "", 1)}`
+      sub: `Rf ${fmt(g.rf_mean, "/min", 1)} â€¢ Vt ${fmt(g.vt_mean_l, "L", 2)} â€¢ Ve/100W ${fmt(g.ve_per_100w_mean, "", 1)}`
     },
     {
-      label: "5. Thermorégulation CORE",
-      badge: (g.tcore_max ?? 0) > 38.1 ? "Hyperthermie" : "Normo",
+      label: "Thermoregulation CORE",
+      badge: (g.tcore_max ?? 0) > 38.1 ? "Chaleur" : "Normo",
       tone: (g.tcore_max ?? 0) > 38.5 ? "crit" : (g.tcore_max ?? 0) > 38.1 ? "warn" : "ok",
-      main: `Tcore max ${fmt(g.tcore_max, "°C", 2)}`,
-      sub: `Moy ${fmt(g.tcore_mean, "°C", 2)} • Tskin max ${fmt(g.tskin_max, "°C", 1)} • HSI max ${fmt(g.hsi_max, "", 1)}`
+      main: `Tcore max ${fmt(g.tcore_max, "Â°C", 2)}`,
+      sub: `Moy ${fmt(g.tcore_mean, "Â°C", 2)} â€¢ HSI max ${fmt(g.hsi_max, "", 1)}`
     },
     {
-      label: "6. DFA α₁ & r(Tcore, α₁ | P60s)",
+      label: "DFA Î±â‚ (ECG)",
       badge: `Art ${fmt(g.artifacts_mean_pct, "%", 1)}`,
-      tone: rPart !== null && rPart < -0.25 ? "warn" : "info",
-      main: `α₁ moy ${fmt(g.alpha1_filtered_mean, "", 2)}`,
-      sub: `r(Tcore, α₁ | P60s) = ${fmt(rPart, "", 3)}`
+      tone: (g.artifacts_mean_pct ?? 0) > 5 ? "warn" : "info",
+      main: `Î±â‚ moy ${fmt(g.alpha1_filtered_mean, "", 2)}`,
+      sub: `Validite signal : ${fmt(g.alpha1_valid_pct, "%", 1)}`
     }
   ];
 
@@ -943,118 +937,83 @@ function renderKpiGrid(session) {
     .join("");
 }
 
-/* ==========================================================================
-   6. Rendu Ordre 2 : Accordéons Techniques Détaillés
-   ========================================================================== */
-function renderAnomalies(session) {
-  const box = $("anomalies-container");
-  if (!box) return;
-  const autoPauses = session?.incidents?.auto_pause_incidents || [];
-  const tachPeaks = session?.incidents?.tachypnea_peaks || [];
+function populateResponsiveTable(tableId, columns, rows) {
+  const table = $(tableId);
+  if (!table) return;
+  const thead = table.querySelector("thead");
+  const tbody = table.querySelector("tbody");
+  if (!thead || !tbody) return;
 
-  if (autoPauses.length === 0 && tachPeaks.length === 0) {
-    box.innerHTML = "<p>Aucun incident d'auto-pause en montée ni pic de tachypnée hyperthermique détecté.</p>";
+  thead.innerHTML = `<tr>${columns.map((c) => `<th scope="col">${escapeHtml(c)}</th>`).join("")}</tr>`;
+
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = `<tr><th scope="row">â€”</th><td colspan="${Math.max(1, columns.length - 1)}">Aucune donnee.</td></tr>`;
     return;
   }
 
-  const pauseHtml = autoPauses
-    .map((inc) => {
-      const pre = inc.pre_incident || {};
-      const brk = inc.braking || {};
-      const ap = inc.auto_pause || {};
-      const post = inc.post_resume || {};
-      return `
-      <article class="cascade-step">
-        <div class="cascade-step-head">
-          <strong>Auto-Pause ${escapeHtml(ap.time_before_hms || "")} → ${escapeHtml(ap.time_after_hms || "")} (${escapeHtml(inc.trigger || "")})</strong>
-          <div class="cascade-badges">
-            <span class="badge badge-warn">ΔTcore ${escapeHtml(fmtSigned(ap.delta_tcore, "°C", 2))}</span>
-            <span class="badge badge-warn">ΔHSI ${escapeHtml(fmtSigned(ap.delta_hsi, "", 2))}</span>
-            <span class="badge badge-info">ΔFC ${escapeHtml(fmtSigned(ap.delta_hr, "bpm", 0))}</span>
-          </div>
-        </div>
-        <div class="cascade-stages">
-          <div class="cascade-stage"><strong>1. Pré-incident</strong>P=${escapeHtml(fmt(pre.p_avg_w, "W", 0))} · FC=${escapeHtml(fmt(pre.hr_avg, "bpm", 0))} · Rf=${escapeHtml(fmt(pre.rf_avg, "/m", 0))} · α₁=${escapeHtml(fmt(pre.alpha1_filt, "", 2))}</div>
-          <div class="cascade-stage"><strong>2. Freinage</strong>Durée ${escapeHtml(fmt(brk.duration_s, "s", 0))} · P=${escapeHtml(fmt(brk.p_avg_w, "W", 0))} · Ve/100W=${escapeHtml(fmt(brk.ve_per_100w, "", 1))}</div>
-          <div class="cascade-stage"><strong>3. Auto-pause</strong>Gap ${escapeHtml(fmt(ap.gap_s, "s", 0))} · Tcore ${escapeHtml(fmt(ap.tcore_before, "", 2))}→${escapeHtml(fmt(ap.tcore_after, "°C", 2))} · FC ${escapeHtml(fmt(ap.hr_before, "", 0))}→${escapeHtml(fmt(ap.hr_after, "bpm", 0))}</div>
-          <div class="cascade-stage"><strong>4. Reprise</strong>P=${escapeHtml(fmt(post.p_avg_w, "W", 0))} · HSI max=${escapeHtml(fmt(post.hsi_max, "", 1))} · α₁=${escapeHtml(fmt(post.alpha1_start30, "", 2))}→${escapeHtml(fmt(post.alpha1_end30, "", 2))}</div>
-        </div>
-      </article>`;
-    })
-    .join("");
-
-  const tachHtml = tachPeaks
+  tbody.innerHTML = rows
     .map(
-      (tp) => `
-      <article class="cascade-step">
-        <div class="cascade-step-head">
-          <strong>Pic Tachypnée Hyperthermique (${escapeHtml(tp.start_hms)} → ${escapeHtml(tp.end_hms)})</strong>
-          <div class="cascade-badges">
-            <span class="badge badge-crit">Rf max ${escapeHtml(fmt(tp.rf_max, "/min", 0))}</span>
-            <span class="badge badge-crit">Ve max ${escapeHtml(fmt(tp.ve_max, "L/m", 0))}</span>
-            <span class="badge badge-warn">Tcore ${escapeHtml(fmt(tp.tcore_max, "°C", 2))}</span>
-          </div>
-        </div>
-        <p>Durée ${escapeHtml(fmt(tp.duration_s, "s", 0))} • P moy ${escapeHtml(fmt(tp.p_avg_w, "W", 0))} • FC max ${escapeHtml(fmt(tp.hr_max, "bpm", 0))} • α₁ min ${escapeHtml(fmt(tp.alpha1_min, "", 2))}</p>
-      </article>`
+      (cells) =>
+        `<tr>${cells
+          .map((cell, idx) =>
+            idx === 0
+              ? `<th scope="row">${escapeHtml(fmt(cell))}</th>`
+              : `<td data-label="${escapeHtml(columns[idx] || "")}">${escapeHtml(fmt(cell))}</td>`
+          )
+          .join("")}</tr>`
     )
     .join("");
-
-  box.innerHTML = pauseHtml + tachHtml;
 }
 
-function renderSeriesAndTriptych(session) {
-  const series = session?.series || [];
+function renderIntervalsAndDrifts(session) {
+  const cross = session?.cross_analysis || {};
+  const drv = cross.start_vs_end_drift || {};
+  const cad = cross.cadence_comparison || {};
+  const par = cross.thermal_paradox || {};
+
+  const panels = [];
+  if (drv.found) {
+    panels.push(`<article class="sub-panel"><h3>Derive Debut â†’ Fin</h3><p>${escapeHtml(drv.early_interval.label)} â†’ ${escapeHtml(drv.late_interval.label)} : Î”EF ${escapeHtml(fmtSigned(drv.deltas?.delta_ef_pct, "%", 1))}, Î”FC ${escapeHtml(fmtSigned(drv.deltas?.delta_hr_bpm, "bpm", 0))}, Î”Tcore ${escapeHtml(fmtSigned(drv.deltas?.delta_tcore_c, "Â°C", 2))}, Î”Î±â‚ ${escapeHtml(fmtSigned(drv.deltas?.delta_alpha1, "", 2))}.</p></article>`);
+  }
+  if (cad.found) {
+    panels.push(`<article class="sub-panel"><h3>Effet Cadence</h3><p>${escapeHtml(fmt(cad.low_cad_interval.cadence_rpm, "rpm", 0))} vs ${escapeHtml(fmt(cad.high_cad_interval.cadence_rpm, "rpm", 0))} : Î”FC ${escapeHtml(fmtSigned(cad.deltas?.delta_hr_bpm, "bpm", 0))}, Î”EF ${escapeHtml(fmtSigned(cad.deltas?.delta_ef_pct, "%", 1))}, Î”Î±â‚ ${escapeHtml(fmtSigned(cad.deltas?.delta_alpha1, "", 2))}.</p></article>`);
+  }
+  if (par.found) {
+    panels.push(`<article class="sub-panel"><h3>Impact Thermique</h3><p>Bloc chaud vs refroidi : Î”P ${escapeHtml(fmtSigned(par.deltas?.delta_p_w, "W", 0))}, Î”Tcore ${escapeHtml(fmtSigned(par.deltas?.delta_tcore_c, "Â°C", 2))}, Î”Î±â‚ ${escapeHtml(fmtSigned(par.deltas?.delta_alpha1, "", 2))}.</p></article>`);
+  }
+  $("triptych-container").innerHTML = panels.length
+    ? panels.join("")
+    : `<article class="sub-panel"><h3>Derives Croisees</h3><p>Pas de paire comparable sur cette seance (effort continu ou bloc unique).</p></article>`;
+
+  const series = (session?.series || []).filter((grp) => grp.drift_1_to_n);
   const driftRows = series.map((grp) => {
     const d = grp.drift_1_to_n;
-    if (!d) {
-      return [grp.series_id, `${grp.interval_count} int.`, "—", "—", "—", "—", "—", "—"];
-    }
     return [
-      `${grp.series_id} (${d.from_label}→${d.to_label})`,
-      `${grp.interval_count} int.`,
+      `${grp.series_id} (${d.from_label}â†’${d.to_label})`,
+      `${grp.interval_count} blocs`,
       fmtSigned(d.delta_power_w, "W", 0),
-      fmtSigned(d.delta_cadence_rpm, "rpm", 0),
       fmtSigned(d.delta_hr_bpm, "bpm", 0),
       fmtSigned(d.delta_ef_pct, "%", 1),
-      fmtSigned(d.delta_tcore_c, "°C", 2),
+      fmtSigned(d.delta_tcore_c, "Â°C", 2),
       fmtSigned(d.delta_alpha1, "", 2)
     ];
   });
+  populateResponsiveTable("table-drift", ["Serie", "Blocs", "Î”P", "Î”FC", "Î”EF %", "Î”Tcore", "Î”Î±â‚"], driftRows);
 
-  populateResponsiveTable(
-    "table-drift",
-    {
-      columns: ["Série (1 → N)", "Blocs", "ΔP", "ΔCadence", "ΔFC", "ΔEF %", "ΔTcore", "ΔDFA α₁"],
-      rows: driftRows
-    },
-    ["Série (1 → N)", "Blocs", "ΔP", "ΔCadence", "ΔFC", "ΔEF %", "ΔTcore", "ΔDFA α₁"]
-  );
-
-  const cross = session?.cross_analysis || {};
-  const cad = cross.cadence_comparison || {};
-  const par = cross.thermal_paradox || {};
-  const drv = cross.start_vs_end_drift || {};
-
-  const cadTxt = cad.found
-    ? `${cad.low_cad_interval.label} (${fmt(cad.low_cad_interval.cadence_rpm, "rpm", 0)}) vs ${cad.high_cad_interval.label} (${fmt(cad.high_cad_interval.cadence_rpm, "rpm", 0)}) : ΔFC ${fmtSigned(cad.deltas?.delta_hr_bpm, "bpm", 0)}, ΔEF ${fmtSigned(cad.deltas?.delta_ef_pct, "%", 1)}, Δα₁ ${fmtSigned(cad.deltas?.delta_alpha1, "", 2)}.`
-    : "Aucune paire à puissance équivalente (ΔP < 25 W) et ΔCad ≥ 15 rpm.";
-
-  const parTxt = par.found
-    ? `${par.hot_low_interval.label} (chaud, ${fmt(par.hot_low_interval.p_avg_w, "W", 0)}) vs ${par.cooled_high_interval.label} (refroidi, ${fmt(par.cooled_high_interval.p_avg_w, "W", 0)}) : ΔP ${fmtSigned(par.deltas?.delta_p_w, "W", 0)}, ΔTcore ${fmtSigned(par.deltas?.delta_tcore_c, "°C", 2)}, Δα₁ ${fmtSigned(par.deltas?.delta_alpha1, "", 2)}.`
-    : "Aucun paradoxe thermique caractérisé sur cette séance.";
-
-  const drvTxt = drv.found
-    ? `${drv.early_interval.label} → ${drv.late_interval.label} : ΔEF ${fmtSigned(drv.deltas?.delta_ef_pct, "%", 1)}, ΔFC ${fmtSigned(drv.deltas?.delta_hr_bpm, "bpm", 0)}, ΔTcore ${fmtSigned(drv.deltas?.delta_tcore_c, "°C", 2)}, Δα₁ ${fmtSigned(drv.deltas?.delta_alpha1, "", 2)}.`
-    : "Pas de paire début vs fin à puissance comparable (ΔP < 30 W).";
-
-  const box = $("triptych-container");
-  if (box) {
-    box.innerHTML = `
-      <article class="sub-panel"><h3>Comparaison Cadence</h3><p>${escapeHtml(cadTxt)}</p></article>
-      <article class="sub-panel"><h3>Paradoxe Thermique</h3><p>${escapeHtml(parTxt)}</p></article>
-      <article class="sub-panel"><h3>Dérive Début vs Fin</h3><p>${escapeHtml(drvTxt)}</p></article>`;
-  }
+  const workSegs = (session?.intervals || []).filter((s) => s.kind === "work");
+  const workRows = workSegs.map((s) => [
+    `${s.label}${s.series_id ? ` (${s.series_id})` : ""}`,
+    formatSecondsHms(s.duration_s),
+    fmt(s.p_avg_w, "W", 0),
+    fmt(s.np_w, "W", 0),
+    fmt(s.hr_avg_bpm, "bpm", 0),
+    fmt(s.ef_w_bpm, "", 2),
+    fmt(s.cadence_rpm, "rpm", 0),
+    fmt(s.ve_avg, "L/m", 1),
+    fmt(s.alpha1_filt, "", 2),
+    fmt(s.tcore_end, "Â°C", 2)
+  ]);
+  populateResponsiveTable("table-work", ["Bloc", "Duree", "P moy", "NP", "FC", "EF", "Cad", "Ve", "Î±â‚", "Tcore"], workRows);
 }
 
 function renderThresholds(session) {
@@ -1067,117 +1026,128 @@ function renderThresholds(session) {
 
   box.innerHTML = `
     <article class="sub-panel">
-      <h3>Normothermie (Tcore &lt; 37.8 °C)</h3>
+      <h3>Normothermie (Tcore &lt; 37.8 Â°C)</h3>
       <dl class="threshold-kv">
-        <dt>SV₁ (α₁ ∈ [0.70, 0.80])</dt><dd>${escapeHtml(fmt(normo.sv1?.watts, "W", 0))} · ${escapeHtml(fmt(normo.sv1?.hr, "bpm", 0))}</dd>
-        <dt>SV₂ (α₁ ∈ [0.45, 0.55])</dt><dd>${escapeHtml(fmt(normo.sv2?.watts, "W", 0))} · ${escapeHtml(fmt(normo.sv2?.hr, "bpm", 0))}</dd>
-        <dt>Échantillons 1 Hz</dt><dd>${escapeHtml(fmt(normo.sample_count, "s", 0))}</dd>
+        <dt>SVâ‚ (Î±â‚ 0.75)</dt><dd>${escapeHtml(fmt(normo.sv1?.watts, "W", 0))} Â· ${escapeHtml(fmt(normo.sv1?.hr, "bpm", 0))}</dd>
+        <dt>SVâ‚‚ (Î±â‚ 0.50)</dt><dd>${escapeHtml(fmt(normo.sv2?.watts, "W", 0))} Â· ${escapeHtml(fmt(normo.sv2?.hr, "bpm", 0))}</dd>
       </dl>
     </article>
     <article class="sub-panel">
-      <h3>Hyperthermie (Tcore &gt; 38.1 °C)</h3>
+      <h3>Hyperthermie (Tcore &gt; 38.1 Â°C)</h3>
       <dl class="threshold-kv">
-        <dt>SV₁ thermique</dt><dd>${escapeHtml(fmt(hyper.sv1?.watts, "W", 0))} · ${escapeHtml(fmt(hyper.sv1?.hr, "bpm", 0))}</dd>
-        <dt>SV₂ thermique</dt><dd>${escapeHtml(fmt(hyper.sv2?.watts, "W", 0))} · ${escapeHtml(fmt(hyper.sv2?.hr, "bpm", 0))}</dd>
-        <dt>Biais thermique SV₁ / SV₂</dt><dd>${escapeHtml(fmtSigned(bias.sv1_w_diff, "W", 0))} / ${escapeHtml(fmtSigned(bias.sv2_w_diff, "W", 0))}</dd>
+        <dt>SVâ‚ chaud</dt><dd>${escapeHtml(fmt(hyper.sv1?.watts, "W", 0))} Â· ${escapeHtml(fmt(hyper.sv1?.hr, "bpm", 0))}</dd>
+        <dt>SVâ‚‚ chaud</dt><dd>${escapeHtml(fmt(hyper.sv2?.watts, "W", 0))} Â· ${escapeHtml(fmt(hyper.sv2?.hr, "bpm", 0))}</dd>
+        <dt>Biais thermique</dt><dd>${escapeHtml(fmtSigned(bias.sv1_w_diff, "W", 0))} / ${escapeHtml(fmtSigned(bias.sv2_w_diff, "W", 0))}</dd>
       </dl>
     </article>`;
 }
 
-function populateResponsiveTable(tableId, tableData, fallbackColumns) {
-  const table = $(tableId);
-  if (!table) return;
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-  if (!thead || !tbody) return;
+function renderAnomalies(session) {
+  const box = $("anomalies-container");
+  if (!box) return;
+  const pauses = session?.incidents?.auto_pause_incidents || [];
+  const tach = session?.incidents?.tachypnea_peaks || [];
 
-  const cols = Array.isArray(tableData?.columns) && tableData.columns.length > 0 ? tableData.columns : fallbackColumns;
-  const rows = Array.isArray(tableData?.rows) ? tableData.rows : [];
-
-  for (let i = 1; i < cols.length && i < 12; i += 1) {
-    table.style.setProperty(`--label-${i + 1}`, `"${String(cols[i]).replaceAll('"', '\\"')}"`);
-  }
-
-  thead.innerHTML = `<tr>${cols.map((c) => `<th scope="col">${escapeHtml(c)}</th>`).join("")}</tr>`;
-
-  if (rows.length === 0) {
-    tbody.innerHTML = `<tr><th scope="row">—</th><td colspan="${Math.max(1, cols.length - 1)}">Aucune donnée disponible.</td></tr>`;
+  if (pauses.length === 0 && tach.length === 0) {
+    box.innerHTML = "<p>Aucun incident d'auto-pause ni pic de tachypnee hyperthermique detecte.</p>";
     return;
   }
 
-  tbody.innerHTML = rows
-    .map((cells) => `<tr>${cells.map((cell, idx) => (idx === 0 ? `<th scope="row">${escapeHtml(fmt(cell))}</th>` : `<td>${escapeHtml(fmt(cell))}</td>`)).join("")}</tr>`)
+  const pauseHtml = pauses
+    .map((inc) => {
+      const ap = inc.auto_pause || {};
+      return `
+      <article class="cascade-step">
+        <div class="cascade-step-head">
+          <strong>Auto-Pause ${escapeHtml(ap.time_before_hms || "")} (gap ${escapeHtml(fmt(ap.gap_s, "s", 0))})</strong>
+          <div class="cascade-badges">
+            <span class="badge badge-warn">Î”Tcore ${escapeHtml(fmtSigned(ap.delta_tcore, "Â°C", 2))}</span>
+            <span class="badge badge-info">Î”FC ${escapeHtml(fmtSigned(ap.delta_hr, "bpm", 0))}</span>
+          </div>
+        </div>
+      </article>`;
+    })
     .join("");
-}
 
-function renderIntervalTables(session) {
-  const segments = session?.intervals || [];
-  const colsA = ["Segment", "Durée", "P moy", "NP", "Cadence", "Couple", "Vitesse", "Pente", "FC moy", "EF (W/bpm)"];
-  const rowsA = segments.map((s) => [
-    `${s.label}${s.series_id ? ` (${s.series_id})` : ""}`,
-    formatSecondsHms(s.duration_s),
-    fmt(s.p_avg_w, "W", 0),
-    fmt(s.np_w, "W", 0),
-    fmt(s.cadence_rpm, "rpm", 0),
-    fmt(s.torque_nm, "Nm", 1),
-    fmt(s.speed_kmh, "km/h", 1),
-    fmtSigned(s.grade_pct, "%", 1),
-    fmt(s.hr_avg_bpm, "bpm", 0),
-    fmt(s.ef_w_bpm, "", 2)
-  ]);
-  populateResponsiveTable("table-a", { columns: colsA, rows: rowsA }, colsA);
+  const tachHtml = tach
+    .map(
+      (tp) => `
+      <article class="cascade-step">
+        <div class="cascade-step-head">
+          <strong>Pic Tachypnee (${escapeHtml(tp.start_hms)} Â· ${escapeHtml(fmt(tp.duration_s, "s", 0))})</strong>
+          <div class="cascade-badges">
+            <span class="badge badge-crit">Rf ${escapeHtml(fmt(tp.rf_max, "/min", 0))}</span>
+            <span class="badge badge-warn">Tcore ${escapeHtml(fmt(tp.tcore_max, "Â°C", 2))}</span>
+          </div>
+        </div>
+      </article>`
+    )
+    .join("");
 
-  const colsB = ["Segment", "Ve", "Rf", "Vt", "Ve/100W", "DFA α₁", "Artéfacts", "Tcore fin", "Tskin", "HSI max"];
-  const rowsB = segments.map((s) => [
-    s.label,
-    fmt(s.ve_avg, "L/m", 1),
-    fmt(s.rf_avg, "/m", 1),
-    fmt(s.vt_avg_l, "L", 2),
-    fmt(s.ve_per_100w, "", 1),
-    fmt(s.alpha1_filt, "", 2),
-    fmt(s.artifacts_pct, "%", 1),
-    fmt(s.tcore_end, "°C", 2),
-    fmt(s.tskin_avg, "°C", 1),
-    fmt(s.hsi_max, "", 1)
-  ]);
-  populateResponsiveTable("table-b", { columns: colsB, rows: rowsB }, colsB);
-}
-
-function renderAll() {
-  const bundle = state.bundle;
-  const empty = $("empty-state");
-  const root = $("report-root");
-  const fab = $("fab-ask");
-
-  if (!bundle || !bundle.sessions || bundle.sessions.length === 0) {
-    if (empty) empty.hidden = false;
-    if (root) root.hidden = true;
-    if (fab) fab.hidden = true;
-    return;
-  }
-
-  if (empty) empty.hidden = true;
-  if (root) root.hidden = false;
-  if (fab) fab.hidden = false;
-
-  renderTabs(bundle);
-  const idx = getActiveSessionIndex(bundle);
-  const session = bundle.sessions[idx];
-  $("report-meta-badge").textContent = `${bundle.date || ""} • ${session?.meta?.name || `Séance ${idx + 1}`}`;
-
-  renderConsolidatedCard(bundle);
-  renderVerdict(session, bundle);
-  renderWellness(bundle);
-  renderKpiGrid(session);
-  renderAnomalies(session);
-  renderSeriesAndTriptych(session);
-  renderThresholds(session);
-  renderIntervalTables(session);
+  box.innerHTML = pauseHtml + tachHtml;
 }
 
 /* ==========================================================================
-   7. Chat Multi-Tours Gemini (gemini_client.js)
+   6. Suggestions Ciblees & Chat Multi-Tours
    ========================================================================== */
+function buildContextualChipsFromBundle(bundle, session) {
+  const gemChips = bundle?.gemini_synthesis?.suggested_questions;
+  if (Array.isArray(gemChips) && gemChips.length >= 2) {
+    return gemChips.slice(0, 4);
+  }
+
+  const chips = [];
+  const g = session?.global || {};
+  const w = bundle?.wellness || {};
+  const series = (session?.series || []).filter((s) => s.drift_1_to_n);
+  const works = (session?.intervals || []).filter((s) => s.kind === "work");
+
+  if (series.length > 0) {
+    const s0 = series[0];
+    chips.push(`Explique la derive sur ${s0.series_id} (${s0.interval_count} blocs)`);
+  } else if (works.length >= 2) {
+    chips.push(`Compare mes ${works.length} blocs (P, FC, EF, derive)`);
+  } else if (g.normalized_power_w) {
+    chips.push(`Analyse l'endurance : NP ${Math.round(g.normalized_power_w)} W, Pa:Hr ${fmtSigned(g.aerobic_decoupling_pa_hr_pct, "%", 1)}`);
+  }
+
+  if (g.tcore_max && g.tcore_max >= 38.0) {
+    chips.push(`Impact de Tcore ${g.tcore_max.toFixed(2)} Â°C sur mes seuils SV1/SV2`);
+  } else if (g.ve_per_100w_mean) {
+    chips.push(`Rendement ventilatoire (Ve/100W = ${g.ve_per_100w_mean.toFixed(1)}) et cadence`);
+  }
+
+  if (w.tsb != null && w.tsb < -20) {
+    chips.push(`Comment calibrer demain avec TSB a ${Math.round(w.tsb)} ?`);
+  } else if (g.tss) {
+    chips.push(`Quelle seance demain apres ${Math.round(g.tss)} TSS ?`);
+  }
+
+  if (g.work_kj) {
+    chips.push(`Protocole glucides/proteines sans viande pour ${Math.round(g.work_kj)} kJ`);
+  } else {
+    chips.push("Recharge glucides/proteines sans viande ce soir");
+  }
+
+  return chips.slice(0, 4);
+}
+
+function renderDynamicChips(bundle, session) {
+  const container = $("quick-chips");
+  if (!container) return;
+  const chips = buildContextualChipsFromBundle(bundle, session);
+  container.innerHTML = "";
+
+  for (const q of chips) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip-btn";
+    btn.textContent = q;
+    btn.addEventListener("click", () => handleChatSubmit(q));
+    container.appendChild(btn);
+  }
+}
+
 function appendChatMessage(role, rawText) {
   const log = $("chat-messages");
   if (!log) return;
@@ -1195,7 +1165,7 @@ async function handleChatSubmit(questionText) {
   state.vault = loadVault();
 
   if (!state.vault.GEMINI_API_KEY) {
-    setVaultDrawerOpen(true, "Renseignez GEMINI_API_KEY dans le coffre-fort pour discuter avec Gemini.", true);
+    setVaultDrawerOpen(true, "Renseignez GEMINI_API_KEY pour utiliser le chat.", true);
     return;
   }
 
@@ -1209,15 +1179,14 @@ async function handleChatSubmit(questionText) {
   if (submitBtn) submitBtn.disabled = true;
   if (input) input.value = "";
 
-  // Garantit que le dernier tour avant la nouvelle question est bien 'model'
   if (state.conversationHistory.length > 0 && state.conversationHistory[state.conversationHistory.length - 1].role === "user") {
-    state.conversationHistory.push({ role: "model", parts: [{ text: "Bien reçu." }] });
+    state.conversationHistory.push({ role: "model", parts: [{ text: "Bien recu." }] });
   }
 
   const logEl = $("chat-messages");
   const loadingDiv = document.createElement("div");
   loadingDiv.className = "chat-msg chat-msg-assistant";
-  loadingDiv.innerHTML = "<em>⏳ Gemini analyse les métriques de la séance...</em>";
+  loadingDiv.innerHTML = "<em>â³ Analyse Gemini en cours...</em>";
   if (logEl) {
     logEl.appendChild(loadingDiv);
     logEl.scrollTop = logEl.scrollHeight;
@@ -1231,6 +1200,10 @@ async function handleChatSubmit(questionText) {
       model: state.vault.LLM_MODEL || "gemini-4-hydrogen"
     });
     loadingDiv.remove();
+    if (res.usedModel && res.usedModel !== state.vault.LLM_MODEL) {
+      state.vault = saveVault({ LLM_MODEL: res.usedModel });
+      syncVaultFormInputs();
+    }
     state.conversationHistory = res.conversationHistory;
     appendChatMessage("assistant", res.answer);
   } catch (err) {
@@ -1247,21 +1220,46 @@ function initChat() {
     handleChatSubmit($("chat-input")?.value);
   });
 
-  document.querySelectorAll(".chip-btn").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const q = chip.getAttribute("data-question");
-      if (q) handleChatSubmit(q);
-    });
-  });
-
   $("fab-ask")?.addEventListener("click", () => {
     $("chat-section")?.scrollIntoView({ behavior: "smooth" });
     $("chat-input")?.focus();
   });
 }
 
+function renderAll() {
+  const bundle = state.bundle;
+  const empty = $("empty-state");
+  const root = $("report-root");
+  const fab = $("fab-ask");
+
+  if (!bundle || !Array.isArray(bundle.sessions) || bundle.sessions.length === 0) {
+    if (empty) empty.hidden = false;
+    if (root) root.hidden = true;
+    if (fab) fab.hidden = true;
+    return;
+  }
+
+  if (empty) empty.hidden = true;
+  if (root) root.hidden = false;
+  if (fab) fab.hidden = false;
+
+  renderTabs(bundle);
+  const idx = getActiveSessionIndex(bundle);
+  const session = bundle.sessions[idx];
+  $("report-meta-badge").textContent = `${bundle.date || ""} â€¢ ${session?.meta?.name || `Seance ${idx + 1}`}`;
+
+  renderConsolidatedCard(bundle);
+  renderVerdict(session, bundle);
+  renderWellness(bundle);
+  renderKpiGrid(session);
+  renderIntervalsAndDrifts(session);
+  renderThresholds(session);
+  renderAnomalies(session);
+  renderDynamicChips(bundle, session);
+}
+
 /* ==========================================================================
-   8. Initialisation
+   7. Initialisation Unique au Demarrage
    ========================================================================== */
 function restoreCachedReport() {
   const raw = safeGet(REPORT_CACHE_KEY);
@@ -1275,11 +1273,11 @@ function restoreCachedReport() {
       renderAll();
     }
   } catch {
-    /* Cache invalide ignoré */
+    /* Cache invalide ignore */
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   initThemeToggle();
   initNetworkAndSw();
   initVaultUI();
@@ -1289,281 +1287,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("btn-analyze-1click")?.addEventListener("click", runFullPipeline);
   restoreCachedReport();
-});
 
-
-
-
-/* ==========================================================================
-   AUTO_SYNC_GEMINI_MODELS_V2 : Sélection dynamique du meilleur modèle à l'ouverture
-   ========================================================================== */
-const MODELS_CACHE_KEY = "PHYSIOPULSE_CACHED_MODELS_V2";
-const AUTO_ANALYZE_KEY = "PHYSIOPULSE_AUTO_ANALYZE_STARTUP";
-const PREFERRED_MODEL_ORDER = [
-  "gemini-4-hydrogen",
-  "gemini-3.8-flash",
-  "gemini-flash-latest"
-];
-
-function pickBestAvailableModel(modelsList, currentSavedModel) {
-  const availableIds = modelsList
-    .map(m => (typeof m === "string" ? m : (m.id || m.name || "")).replace(/^models\//, ""))
-    .filter(Boolean);
-
-  if (availableIds.length === 0) {
-    return currentSavedModel && currentSavedModel !== "gemini-2.5-flash"
-      ? currentSavedModel
-      : "gemini-4-hydrogen";
-  }
-
-  // Si l'utilisateur a explicitement choisi un autre modèle valide (ex: gemini-4-argon, gemini-pro-latest)
-  if (
-    currentSavedModel &&
-    currentSavedModel !== "gemini-2.5-flash" &&
-    availableIds.includes(currentSavedModel)
-  ) {
-    return currentSavedModel;
-  }
-
-  // Sinon, sélection automatique par ordre de priorité (gemini-4-hydrogen -> gemini-3.8-flash -> gemini-flash-latest)
-  for (const candidate of PREFERRED_MODEL_ORDER) {
-    if (availableIds.includes(candidate)) {
-      return candidate;
-    }
-  }
-
-  return availableIds[0];
-}
-
-function renderModelOptions(selectEl, modelsList, selectedId) {
-  if (!selectEl || !Array.isArray(modelsList) || modelsList.length === 0) return;
-  selectEl.innerHTML = "";
-  for (const m of modelsList) {
-    const id = (typeof m === "string" ? m : (m.id || m.name || "")).replace(/^models\//, "");
-    const label = typeof m === "string" ? m : (m.displayName ? `${id} — ${m.displayName}` : id);
-    if (!id) continue;
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = label;
-    selectEl.appendChild(opt);
-  }
-  if (selectedId && [...selectEl.options].some(o => o.value === selectedId)) {
-    selectEl.value = selectedId;
-  }
-}
-
-async function resolveAndSyncModelsAtStartup() {
-  const selectEl = document.getElementById("llm-model") || document.querySelector("select[id*='model']");
-  const vault = loadVault();
-  const apiKey = (vault.GEMINI_API_KEY || "").trim();
-  let savedModel = vault.LLM_MODEL || localStorage.getItem("LLM_MODEL") || "";
-
-  // Purge immédiate de l'ancien modèle déprécié gemini-2.5-flash
-  if (savedModel === "gemini-2.5-flash") {
-    savedModel = "";
-  }
-
-  // 1. Hydratation immédiate depuis le cache localStorage si disponible
-  let cachedModels = [];
-  try {
-    cachedModels = JSON.parse(localStorage.getItem(MODELS_CACHE_KEY) || "[]");
-  } catch (_) {}
-
-  let chosenModel = pickBestAvailableModel(cachedModels, savedModel);
-  if (cachedModels.length > 0 && selectEl) {
-    renderModelOptions(selectEl, cachedModels, chosenModel);
-  }
-
-  // 2. Interrogation en direct de l'API Google pour récupérer les modèles actifs à l'ouverture
-  if (apiKey) {
-    try {
-      const liveModels = await fetchAvailableGeminiModels(apiKey);
-      if (Array.isArray(liveModels) && liveModels.length > 0) {
-        localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(liveModels));
-        chosenModel = pickBestAvailableModel(liveModels, savedModel);
-        if (selectEl) {
-          renderModelOptions(selectEl, liveModels, chosenModel);
-        }
-      }
-    } catch (_) {
-      // Conservation du modèle en cache en cas de coupure réseau
-    }
-  }
-
-  // 3. Persistance du modèle retenu dans le coffre-fort partagé
-  if (chosenModel) {
-    localStorage.setItem("LLM_MODEL", chosenModel);
-    try {
-      const rawVault = localStorage.getItem("GLOBAL_ATHLETE_VAULT_V1");
-      if (rawVault) {
-        const vObj = JSON.parse(rawVault);
-        vObj.LLM_MODEL = chosenModel;
-        localStorage.setItem("GLOBAL_ATHLETE_VAULT_V1", JSON.stringify(vObj));
-      }
-    } catch (_) {}
-  }
-
-  return chosenModel;
-}
-
-document.addEventListener("DOMContentLoaded", async () => {
-  const autoChk = document.getElementById("auto-analyze-startup");
-  if (autoChk) {
-    autoChk.checked = localStorage.getItem(AUTO_ANALYZE_KEY) === "1";
-    autoChk.addEventListener("change", () => {
-      localStorage.setItem(AUTO_ANALYZE_KEY, autoChk.checked ? "1" : "0");
-    });
-  }
-
-  // Résout d'abord le bon modèle en direct, puis lance l'analyse si l'auto-start est coché
   await resolveAndSyncModelsAtStartup();
 
-  const vault = loadVault();
-  if (localStorage.getItem(AUTO_ANALYZE_KEY) === "1" && vault.INTERVALS_API_KEY) {
-    const triggerBtn = document.getElementById("btn-analyze-1click");
-    if (triggerBtn && !triggerBtn.disabled) {
-      triggerBtn.click();
-    }
+  if (safeGet(AUTO_ANALYZE_KEY) === "1" && state.vault.INTERVALS_API_KEY && state.vault.GEMINI_API_KEY) {
+    runFullPipeline();
   }
-});
-
-
-/* ==========================================================================
-   DYNAMIC_CONTEXTUAL_CHIPS_V1 : Raccourcis de chat calés sur la séance du jour
-   ========================================================================== */
-const CHIPS_CACHE_KEY = "PHYSIOPULSE_DYNAMIC_CHIPS_V1";
-let cachedChipsContainer = null;
-
-function getChipsContainer() {
-  if (cachedChipsContainer && document.body.contains(cachedChipsContainer)) {
-    return cachedChipsContainer;
-  }
-  const existingChip = document.querySelector(".chip-btn");
-  if (existingChip && existingChip.parentElement) {
-    cachedChipsContainer = existingChip.parentElement;
-    return cachedChipsContainer;
-  }
-  return null;
-}
-
-function buildContextualChipsFromBundle(bundle) {
-  const chips = [];
-  if (!bundle || !Array.isArray(bundle.sessions) || bundle.sessions.length === 0) {
-    return [
-      "Analyse la charge et la récupération du jour",
-      "Calibre ma séance de demain",
-      "Stratégie nutritionnelle sans viande post-effort"
-    ];
-  }
-
-  const s = bundle.sessions[0];
-  const m = s.metrics || s.summary || s;
-  const w = bundle.wellness || s.wellness || {};
-  const sets = s.sets || s.detected_sets || s.series || [];
-  const intervals = s.intervals || s.work_intervals || [];
-  const incidents = s.incidents || s.auto_pauses || [];
-
-  const np = Math.round(m.np || m.normalized_power || 0);
-  const tss = Math.round(m.tss || m.training_load || 0);
-  const tcoreMax = m.tcore_max || m.max_tcore || null;
-  const decoupling = m.pa_hr ?? m.aerobic_decoupling ?? null;
-  const tsb = w.tsb ?? w.form ?? null;
-
-  // 1. Si séries ou intervalles détectés
-  if (sets.length > 0) {
-    const mainSet = sets[0];
-    const lbl = mainSet.label || `${mainSet.count || intervals.length} blocs`;
-    chips.push(`Analyse l'exécution et la dérive sur ${lbl}`);
-  } else if (intervals.length >= 2) {
-    chips.push(`Compare mes ${intervals.length} intervalles (Watts, FC, dérive)`);
-  } else {
-    chips.push(`Évalue mon endurance aérobie (${np} W, découplage ${decoupling ?? 0} %)`);
-  }
-
-  // 2. Si contrainte thermique ou incidents
-  if (tcoreMax && tcoreMax >= 38.0) {
-    chips.push(`Impact de Tcore ${Number(tcoreMax).toFixed(2)} °C sur mes seuils SV1/SV2`);
-  } else if (incidents.length > 0) {
-    chips.push(`Analyse les ${incidents.length} arrêts/incidents et la reprise`);
-  } else {
-    chips.push(`Analyse le rendement ventilation (VE/W) et couple/cadence`);
-  }
-
-  // 3. Calibrage séance suivante selon TSB / charge
-  if (tsb !== null && tsb < -20) {
-    chips.push(`Comment ajuster demain avec un TSB à ${Math.round(tsb)} ?`);
-  } else {
-    chips.push(`Quelle séance cibler demain après ${tss} TSS ?`);
-  }
-
-  // 4. Nutrition adaptée à la dépense énergétique
-  const kj = Math.round(m.work_kj || m.kilojoules || 0);
-  chips.push(kj > 1500
-    ? `Protocole glucides/protéines (sans viande) pour ${kj} kJ`
-    : `Recharge protéique et glycogénique sans viande adaptée`
-  );
-
-  return chips.slice(0, 4);
-}
-
-function renderDynamicChatChips(chipsList) {
-  const container = getChipsContainer();
-  if (!container || !Array.isArray(chipsList) || chipsList.length === 0) return;
-
-  container.innerHTML = "";
-  for (const q of chipsList) {
-    const cleanQ = String(q || "").trim();
-    if (!cleanQ) continue;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "chip-btn";
-    btn.setAttribute("data-question", cleanQ);
-    btn.textContent = cleanQ;
-    btn.addEventListener("click", () => handleChatSubmit(cleanQ));
-    container.appendChild(btn);
-  }
-}
-
-function extractAndApplySuggestedChips(rawText, fallbackBundle) {
-  let cleanedText = String(rawText || "");
-  let parsedChips = null;
-
-  const match = cleanedText.match(/SUGGESTED_CHIPS:\s*(\[[\s\S]*?\])\s*$/i);
-  if (match) {
-    cleanedText = cleanedText.replace(match[0], "").trim();
-    try {
-      const arr = JSON.parse(match[1]);
-      if (Array.isArray(arr) && arr.length > 0) {
-        parsedChips = arr.map(x => String(x).trim()).filter(Boolean).slice(0, 4);
-      }
-    } catch (_) {}
-  }
-
-  const finalChips = parsedChips || buildContextualChipsFromBundle(fallbackBundle);
-  localStorage.setItem(CHIPS_CACHE_KEY, JSON.stringify(finalChips));
-  renderDynamicChatChips(finalChips);
-  return cleanedText;
-}
-
-// Intercepte renderSafeMarkdown lors du rendu de la synthèse pour extraire SUGGESTED_CHIPS
-if (typeof renderSafeMarkdown === "function") {
-  const _origRenderSafeMarkdown = renderSafeMarkdown;
-  renderSafeMarkdown = function(mdText) {
-    const cleaned = extractAndApplySuggestedChips(mdText, typeof state !== "undefined" ? state.bundle : null);
-    return _origRenderSafeMarkdown(cleaned);
-  };
-}
-
-// Au chargement du cache, met immédiatement à jour les raccourcis avec les données de la séance en cache
-document.addEventListener("DOMContentLoaded", () => {
-  setTimeout(() => {
-    try {
-      const savedChips = JSON.parse(localStorage.getItem(CHIPS_CACHE_KEY) || "null");
-      if (Array.isArray(savedChips) && savedChips.length > 0) {
-        renderDynamicChatChips(savedChips);
-      } else if (typeof state !== "undefined" && state.bundle) {
-        renderDynamicChatChips(buildContextualChipsFromBundle(state.bundle));
-      }
-    } catch (_) {}
-  }, 150);
 });

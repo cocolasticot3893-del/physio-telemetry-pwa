@@ -1,6 +1,6 @@
-﻿/**
- * Coffre-fort local unifié (GitHub Pages / même origine).
- * Synchronise l'objet JSON GLOBAL_ATHLETE_VAULT_V1 et les 4 clés plates localStorage.
+/**
+ * Coffre-fort local unifie (GitHub Pages / meme origine).
+ * Synchronise GLOBAL_ATHLETE_VAULT_V1 et les 4 cles plates localStorage.
  */
 
 export const VAULT_KEY = "GLOBAL_ATHLETE_VAULT_V1";
@@ -16,11 +16,13 @@ export const DEFAULT_VAULT = Object.freeze({
   INTERVALS_ATHLETE_ID: "0",
   INTERVALS_API_KEY: "",
   GEMINI_API_KEY: "",
-  LLM_MODEL: "gemini-3.5-flash",
+  LLM_MODEL: "gemini-4-hydrogen",
   CP_WATTS: 400,
   W_PRIME_J: 25000,
   updatedAt: null
 });
+
+const DEPRECATED_MODELS = new Set(["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]);
 
 function safeGetItem(key) {
   try {
@@ -36,7 +38,7 @@ function safeSetItem(key, value) {
       globalThis.localStorage.setItem(key, value);
     }
   } catch {
-    // Tolère les environnements où localStorage est restreint (navigation privée / quota)
+    /* Quota / navigation privee */
   }
 }
 
@@ -47,22 +49,28 @@ function parsePositiveNumber(val, fallback) {
 
 function cleanString(val, fallback = "") {
   if (val === null || val === undefined) return fallback;
-  return String(val).trim();
+  return String(val).replace(/[\r\n\t]+/g, "").trim();
 }
 
 function isNonEmpty(val) {
   return typeof val === "string" && val.trim().length > 0;
 }
 
+function normalizeModelId(val) {
+  const cleaned = cleanString(val, DEFAULT_VAULT.LLM_MODEL).replace(/^models\//, "");
+  if (!cleaned || DEPRECATED_MODELS.has(cleaned)) {
+    return DEFAULT_VAULT.LLM_MODEL;
+  }
+  return cleaned;
+}
+
 function normalizeVaultObject(raw = {}) {
   const athleteId = cleanString(raw.INTERVALS_ATHLETE_ID, DEFAULT_VAULT.INTERVALS_ATHLETE_ID);
-  const llmModel = cleanString(raw.LLM_MODEL, DEFAULT_VAULT.LLM_MODEL);
-
   return {
     INTERVALS_ATHLETE_ID: athleteId || DEFAULT_VAULT.INTERVALS_ATHLETE_ID,
     INTERVALS_API_KEY: cleanString(raw.INTERVALS_API_KEY, DEFAULT_VAULT.INTERVALS_API_KEY),
     GEMINI_API_KEY: cleanString(raw.GEMINI_API_KEY, DEFAULT_VAULT.GEMINI_API_KEY),
-    LLM_MODEL: llmModel || DEFAULT_VAULT.LLM_MODEL,
+    LLM_MODEL: normalizeModelId(raw.LLM_MODEL),
     CP_WATTS: parsePositiveNumber(raw.CP_WATTS, DEFAULT_VAULT.CP_WATTS),
     W_PRIME_J: parsePositiveNumber(raw.W_PRIME_J, DEFAULT_VAULT.W_PRIME_J),
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null
@@ -76,10 +84,6 @@ function writeAllStorageKeys(vault) {
   }
 }
 
-/**
- * Charge le coffre unifié et les 4 clés plates, fusionne selon les règles de priorité
- * inter-PWA et resynchronise l'ensemble du stockage local.
- */
 export function loadVault() {
   let unifiedRaw = null;
   let unifiedValid = false;
@@ -128,9 +132,6 @@ export function loadVault() {
   return finalVault;
 }
 
-/**
- * Enregistre le coffre complet dans GLOBAL_ATHLETE_VAULT_V1 et sur les 4 clés plates.
- */
 export function saveVault(values = {}) {
   const current = loadVault();
   const next = normalizeVaultObject({
@@ -143,17 +144,10 @@ export function saveVault(values = {}) {
   return next;
 }
 
-/**
- * Retourne une chaîne JSON formatée de GLOBAL_ATHLETE_VAULT_V1.
- */
 export function exportVaultJson() {
-  const vault = loadVault();
-  return JSON.stringify(vault, null, 2);
+  return JSON.stringify(loadVault(), null, 2);
 }
 
-/**
- * Déclenche le téléchargement navigateur du fichier global-athlete-vault.json.
- */
 export function downloadVaultJson() {
   const json = exportVaultJson();
   const blob = new Blob([json], { type: "application/json;charset=utf-8" });
@@ -170,10 +164,6 @@ export function downloadVaultJson() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/**
- * Parse, valide et importe un JSON (format GLOBAL_ATHLETE_VAULT_V1 ou clés plates),
- * puis sauvegarde et resynchronise toutes les clés.
- */
 export function importVaultJson(jsonText) {
   if (typeof jsonText !== "string" || !jsonText.trim()) {
     throw new Error("Contenu JSON du coffre vide.");
@@ -187,7 +177,7 @@ export function importVaultJson(jsonText) {
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Le fichier importé doit contenir un objet JSON.");
+    throw new Error("Le fichier importe doit contenir un objet JSON.");
   }
 
   const source =
@@ -198,7 +188,7 @@ export function importVaultJson(jsonText) {
   const allowedKeys = [...FLAT_KEYS, "CP_WATTS", "W_PRIME_J"];
   const hasKnownKey = allowedKeys.some((key) => Object.prototype.hasOwnProperty.call(source, key));
   if (!hasKnownKey) {
-    throw new Error("Aucune clé reconnue du coffre athlète dans le JSON importé.");
+    throw new Error("Aucune cle reconnue du coffre athlete dans le JSON importe.");
   }
 
   const patch = {};
@@ -224,5 +214,3 @@ export function importVaultJson(jsonText) {
 
   return saveVault(patch);
 }
-
-

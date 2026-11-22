@@ -1,5 +1,5 @@
-﻿/* Service Worker PhysioPulse Telemetry — Network-First App Shell (zéro cache API externe) */
-const CACHE_NAME = "physiopulse-v202611172012";
+/* Service Worker PhysioPulse Telemetry â€” Network-First App Shell (zero cache API externe) */
+const CACHE_NAME = "physiopulse-v20261122_195858";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,7 +10,9 @@ const ASSETS = [
   "./gemini_client.js",
   "./app.js",
   "./manifest.webmanifest",
-  "./icon-192.png', './icon-512.png"
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon.svg"
 ];
 
 self.addEventListener("install", (event) => {
@@ -49,7 +51,6 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Ne jamais intercepter ni mettre en cache les appels API externes
   if (url.hostname.includes("intervals.icu") || url.hostname.includes("googleapis.com")) {
     return;
   }
@@ -58,7 +59,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Stratégie Network-First pour les requêtes GET de même origine
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -71,11 +71,3 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
-
-
-
-
-
-
-
-
