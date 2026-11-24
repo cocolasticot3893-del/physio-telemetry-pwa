@@ -1,5 +1,5 @@
 /* Service Worker PhysioPulse Telemetry - Network-First App Shell (zero cache API externe) */
-const CACHE_NAME = "physiopulse-v20261122-chatfix";
+const CACHE_NAME = "physiopulse-v20261124-resilience";
 const ASSETS = [
   "./",
   "./index.html",

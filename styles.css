@@ -1162,11 +1162,13 @@ details[open] > summary::before {
 }
 
 .chat-messages {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.55rem;
-  max-block-size: 440px;
+  max-block-size: min(65dvh, 520px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.55rem;
   border-radius: var(--radius-sm);
   background: var(--surface-alt);
@@ -1181,23 +1183,24 @@ details[open] > summary::before {
 }
 
 .chat-msg {
+  flex: 0 0 auto;
   padding: 0.6rem 0.8rem;
   border-radius: var(--radius-sm);
   max-inline-size: 96%;
   font-size: 0.89rem;
   word-break: break-word;
-  overflow-x: auto;
+  overflow-wrap: anywhere;
 }
 
 .chat-msg-user {
-  justify-self: end;
+  align-self: flex-end;
   background: var(--brand);
   color: var(--brand-text);
   white-space: pre-wrap;
 }
 
 .chat-msg-assistant {
-  justify-self: start;
+  align-self: flex-start;
   background: var(--surface);
   border: 1px solid var(--border);
 }
@@ -1205,9 +1208,27 @@ details[open] > summary::before {
 .md-render p { margin: 0 0 0.45rem; }
 .md-render p:last-child { margin-bottom: 0; }
 .md-render ul, .md-render ol { margin: 0.3rem 0 0.45rem; padding-inline-start: 1.2rem; }
-.md-render table { border-collapse: collapse; inline-size: 100%; margin: 0.45rem 0; font-size: 0.8rem; }
+.md-render table { display: block; overflow-x: auto; max-inline-size: 100%; border-collapse: collapse; margin: 0.45rem 0; font-size: 0.8rem; }
+.md-render pre { overflow-x: auto; max-inline-size: 100%; margin: 0.45rem 0; padding: 0.5rem; border-radius: var(--radius-sm); background: var(--surface-alt); }
 .md-render th, .md-render td { border: 1px solid var(--border); padding: 0.3rem 0.45rem; text-align: start; }
 .md-render th { background: var(--surface-alt); }
+
+.chat-retry-btn {
+  margin-top: 0.45rem;
+  padding: 0.3rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brand);
+  background: transparent;
+  color: var(--brand);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.chat-retry-btn:hover {
+  background: var(--surface-hover);
+}
 
 .chat-form {
   display: flex;

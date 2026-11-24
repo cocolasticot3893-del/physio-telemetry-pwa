@@ -1157,6 +1157,7 @@ function appendChatMessage(role, rawText) {
   else div.innerHTML = renderSafeMarkdown(rawText);
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+  return div;
 }
 
 async function handleChatSubmit(questionText) {
@@ -1184,34 +1185,61 @@ async function handleChatSubmit(questionText) {
   }
 
   const logEl = $("chat-messages");
-  const loadingDiv = document.createElement("div");
-  loadingDiv.className = "chat-msg chat-msg-assistant";
-  loadingDiv.innerHTML = "<em>\u23F3 Analyse Gemini en cours...</em>";
-  if (logEl) {
-    logEl.appendChild(loadingDiv);
-    logEl.scrollTop = logEl.scrollHeight;
+
+  async function runQuery() {
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "chat-msg chat-msg-assistant";
+    loadingDiv.innerHTML = "<em>\u23F3 Analyse Gemini en cours...</em>";
+    if (logEl) {
+      logEl.appendChild(loadingDiv);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const onVisChange = () => {
+      if (document.visibilityState === "hidden") {
+        loadingDiv.innerHTML = "<em>\u23F3 En attente du retour au premier plan pour finaliser...</em>";
+      } else {
+        loadingDiv.innerHTML = "<em>\u23F3 Reprise de l'analyse Gemini...</em>";
+      }
+    };
+    document.addEventListener("visibilitychange", onVisChange);
+
+    try {
+      const res = await sendChatMessage({
+        conversationHistory: state.conversationHistory,
+        question: q,
+        geminiApiKey: state.vault.GEMINI_API_KEY,
+        model: state.vault.LLM_MODEL || "gemini-4-hydrogen"
+      });
+      loadingDiv.remove();
+      if (res.usedModel && res.usedModel !== state.vault.LLM_MODEL) {
+        state.vault = saveVault({ LLM_MODEL: res.usedModel });
+        syncVaultFormInputs();
+      }
+      state.conversationHistory = res.conversationHistory;
+      appendChatMessage("assistant", res.answer);
+    } catch (err) {
+      loadingDiv.remove();
+      const errDiv = appendChatMessage("assistant", `**Erreur Gemini :** ${err.message}`);
+      if (errDiv) {
+        const retryBtn = document.createElement("button");
+        retryBtn.type = "button";
+        retryBtn.className = "chat-retry-btn";
+        retryBtn.textContent = "R\u00E9essayer";
+        retryBtn.addEventListener("click", () => {
+          errDiv.remove();
+          if (submitBtn) submitBtn.disabled = true;
+          runQuery();
+        });
+        errDiv.appendChild(retryBtn);
+      }
+    } finally {
+      document.removeEventListener("visibilitychange", onVisChange);
+      if (submitBtn) submitBtn.disabled = false;
+    }
   }
 
-  try {
-    const res = await sendChatMessage({
-      conversationHistory: state.conversationHistory,
-      question: q,
-      geminiApiKey: state.vault.GEMINI_API_KEY,
-      model: state.vault.LLM_MODEL || "gemini-4-hydrogen"
-    });
-    loadingDiv.remove();
-    if (res.usedModel && res.usedModel !== state.vault.LLM_MODEL) {
-      state.vault = saveVault({ LLM_MODEL: res.usedModel });
-      syncVaultFormInputs();
-    }
-    state.conversationHistory = res.conversationHistory;
-    appendChatMessage("assistant", res.answer);
-  } catch (err) {
-    loadingDiv.remove();
-    appendChatMessage("assistant", `**Erreur Gemini :** ${err.message}`);
-  } finally {
-    if (submitBtn) submitBtn.disabled = false;
-  }
+  await runQuery();
 }
 
 function initChat() {

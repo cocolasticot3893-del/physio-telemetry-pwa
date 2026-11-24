@@ -4,7 +4,7 @@
  */
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 60000;
 
 export const PREFERRED_MODEL_ORDER = Object.freeze([
   "gemini-4-hydrogen",
@@ -30,6 +30,71 @@ REGLES STRICTES :
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForForegroundAndOnline(maxWaitMs = 120000) {
+  const isHidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+  const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+
+  if (!isHidden() && !isOffline()) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const hasDoc = typeof document !== "undefined" && typeof document.addEventListener === "function";
+    const hasWin = typeof window !== "undefined" && typeof window.addEventListener === "function";
+
+    const cleanup = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (hasDoc) {
+        document.removeEventListener("visibilitychange", onStateChange);
+      }
+      if (hasWin) {
+        window.removeEventListener("online", onStateChange);
+      }
+    };
+
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    function onStateChange() {
+      if (!isHidden() && !isOffline()) {
+        done();
+      }
+    }
+
+    if (hasDoc) {
+      document.addEventListener("visibilitychange", onStateChange);
+    }
+    if (hasWin) {
+      window.addEventListener("online", onStateChange);
+    }
+
+    timer = setTimeout(done, maxWaitMs);
+    onStateChange();
+  });
+
+  await sleep(500);
+}
+
+async function acquireWakeLock() {
+  if (typeof navigator !== "undefined" && navigator.wakeLock?.request) {
+    try {
+      return await navigator.wakeLock.request("screen");
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function roundNum(val, digits = 2) {
@@ -343,7 +408,7 @@ function extractReplyText(data) {
   throw new Error(`Reponse Gemini vide (finishReason: ${reason}).`);
 }
 
-async function callGeminiOnce({ cleanKey, cleanModel, systemText, contents, generationConfig, maxRetries = 2 }) {
+async function callGeminiOnce({ cleanKey, cleanModel, systemText, contents, generationConfig, maxRetries = 3 }) {
   const endpoint = `${GEMINI_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: systemText }] },
@@ -351,56 +416,102 @@ async function callGeminiOnce({ cleanKey, cleanModel, systemText, contents, gene
     generationConfig
   });
 
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    try {
-      const response = await fetchWithTimeout(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body
-      });
+  const maxBackgroundResumes = 3;
+  let backgroundResumes = 0;
+  const wakeLock = await acquireWakeLock();
 
-      if (response.ok) {
-        const data = await response.json();
-        return extractReplyText(data);
-      }
+  try {
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      let wasHiddenDuringAttempt = typeof document !== "undefined" && document.visibilityState === "hidden";
+      const hasDocListener = typeof document !== "undefined" && typeof document.addEventListener === "function";
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "hidden") {
+          wasHiddenDuringAttempt = true;
+        }
+      };
 
-      let detail = "";
       try {
-        const errJson = await response.json();
-        detail = errJson?.error?.message || "";
+        let response;
+        if (hasDocListener) {
+          document.addEventListener("visibilitychange", onVisibilityChange);
+        }
+        try {
+          response = await fetchWithTimeout(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body
+          });
+        } finally {
+          if (hasDocListener) {
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+          }
+        }
+
+        if (response.ok) {
+          const data = await response.json();
+          return extractReplyText(data);
+        }
+
+        let detail = "";
+        try {
+          const errJson = await response.json();
+          detail = errJson?.error?.message || "";
+        } catch {
+          detail = "";
+        }
+
+        const isRetryableHttp = response.status === 429 || (response.status >= 500 && response.status < 600);
+        if (isRetryableHttp && attempt < maxRetries) {
+          const delayMs = 900 * (2 ** attempt) + Math.floor(Math.random() * 400);
+          await sleep(delayMs);
+          continue;
+        }
+
+        const err = new Error(`Gemini API HTTP ${response.status} (${cleanModel})${detail ? ` : ${detail}` : ""}`);
+        err.status = response.status;
+        err.detail = detail;
+        throw err;
+      } catch (err) {
+        const isNetworkErr =
+          err instanceof TypeError ||
+          Boolean(err?.isRetryableNetwork) ||
+          (!err?.status && /fetch|network|abort|delai/i.test(String(err?.message || "")));
+
+        if (isNetworkErr) {
+          const isBgOrOffline =
+            wasHiddenDuringAttempt ||
+            (typeof document !== "undefined" && document.visibilityState === "hidden") ||
+            (typeof navigator !== "undefined" && navigator.onLine === false);
+
+          if (isBgOrOffline && backgroundResumes < maxBackgroundResumes) {
+            backgroundResumes += 1;
+            attempt -= 1;
+            await waitForForegroundAndOnline();
+            continue;
+          }
+
+          if (attempt < maxRetries) {
+            const delayMs = 900 * (2 ** attempt) + Math.floor(Math.random() * 400);
+            await sleep(delayMs);
+            continue;
+          }
+        }
+
+        if (err instanceof TypeError) {
+          const netErr = new Error(`Echec reseau (Failed to fetch) vers Gemini (${cleanModel}). Verifiez la connexion internet ou la validite de la cle API.`);
+          netErr.isNetwork = true;
+          throw netErr;
+        }
+        throw err;
+      }
+    }
+  } finally {
+    if (wakeLock?.release) {
+      try {
+        await wakeLock.release();
       } catch {
-        detail = "";
+        // Ignorer les erreurs de liberation du wake lock
       }
-
-      const isRetryableHttp = response.status === 429 || (response.status >= 500 && response.status < 600);
-      if (isRetryableHttp && attempt < maxRetries) {
-        const delayMs = 900 * (2 ** attempt) + Math.floor(Math.random() * 400);
-        await sleep(delayMs);
-        continue;
-      }
-
-      const err = new Error(`Gemini API HTTP ${response.status} (${cleanModel})${detail ? ` : ${detail}` : ""}`);
-      err.status = response.status;
-      err.detail = detail;
-      throw err;
-    } catch (err) {
-      const isNetworkErr =
-        err instanceof TypeError ||
-        Boolean(err?.isRetryableNetwork) ||
-        (!err?.status && /fetch|network|abort|delai/i.test(String(err?.message || "")));
-
-      if (isNetworkErr && attempt < maxRetries) {
-        const delayMs = 800 * (2 ** attempt) + Math.floor(Math.random() * 350);
-        await sleep(delayMs);
-        continue;
-      }
-
-      if (err instanceof TypeError) {
-        const netErr = new Error(`Echec reseau (Failed to fetch) vers Gemini (${cleanModel}). Verifiez la connexion internet ou la validite de la cle API.`);
-        netErr.isNetwork = true;
-        throw netErr;
-      }
-      throw err;
     }
   }
 
